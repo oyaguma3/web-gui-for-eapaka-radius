@@ -126,11 +126,12 @@ aka 版 §5 と同じ（argon2id、サーバー側セッションと `__Host-` C
 
 | 配置 | 経路 |
 |---|---|
-| 本PoCと同一ホスト | 本PoC側が用意する共有の Docker ネットワークに、BFF（だけ。専用 Valkey は参加させない）が参加し、`https://provisioning-api:9444/admin/v1` で接続する。BFF 側は共有ネットワークに参加するための compose ファイルを重ねる |
+| 本PoCと同一ホスト | 本PoC側が作る共有の Docker ネットワーク（既定名 `eapaka-prov`。本PoCの `.env` の `PROVISIONING_SHARED_NETWORK`）に、BFF（だけ。専用 Valkey は参加させない）が external として参加し、`https://provisioning-api:9444/admin/v1` で接続する。BFF 側は共有ネットワークに参加するための compose ファイルを重ねる |
 | 別ホスト | 本PoC側で `PROVISIONING_API_BIND` を VPN（WireGuard / Tailscale 等）のアドレスにし、BFF はそのアドレスで接続する。サーバー証明書の SAN にそのアドレス・名前を入れる |
 
-- 本PoCの provisioning-api は既定で `127.0.0.1:9444` にだけ公開される。しかし、別の compose で動く BFF のコンテナからはホストのループバックに届かないため、同一ホストでは共有ネットワークを使う。共有ネットワークのオーバーレイと証明書の SAN の手順は、本PoC側の作業として用意する（未実装）。
-- provisioning-api のログの `src_ip` は、Docker のポート公開を経由するため BFF のアドレスにならないことがある（本PoC O-05 §11.6）。provisioning-api 側で BFF を識別するのは、クライアント証明書の名前（`mgmt_client`）である。
+- 本PoCの provisioning-api は既定で `127.0.0.1:9444` にだけ公開される。しかし、別の compose で動く BFF のコンテナからはホストのループバックに届かないため、同一ホストでは共有ネットワークを使う。本PoC側の共有ネットワークと、サーバー証明書の SAN（`DNS:provisioning-api`）の手順は用意済み（本PoC #45。D-13 r4 §2.2・§8.2、B-02 r21 §15.11）。
+- 共有ネットワークは本PoC側を `docker compose --profile provisioning up -d` したときだけ作られる。本PoC側を先に起動する（ネットワークがないと BFF は `network eapaka-prov declared as external, but could not be found` で起動できない）。BFF が参加したまま本PoC側を止めてもネットワークは残り、本PoC側を起動し直せば BFF は再起動なしで接続できる（simwifi で確認済み）。共有ネットワークからは provisioning-api だけが見え、本PoCの Valkey 等には届かない。
+- provisioning-api のログの `src_ip` は、共有ネットワーク経由では BFF のコンテナの IP、ポート公開経由ではゲートウェイIPになることがあり、BFF のアドレスとは限らない（本PoC O-05 §11.6）。provisioning-api 側で BFF を識別するのは、クライアント証明書の名前（`mgmt_client`）である。
 
 ## 8. データモデル（BFF 専用 Valkey）
 
