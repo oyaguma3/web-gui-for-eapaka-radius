@@ -175,7 +175,7 @@ func TestIntegrationStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	if st.Version == "" || st.NodeName == "" || st.StartedAt.IsZero() || st.StartedAt.After(time.Now()) ||
-		st.SubscriberCount < 0 || st.ClientCount < 0 || st.PolicyCount < 0 {
+		st.SubscriberCount < 0 || st.ClientCount < 0 || st.PolicyCount < 0 || st.SessionCount == nil || *st.SessionCount < 0 {
 		t.Errorf("status = %+v", st)
 	}
 	t.Logf("provisioning-api %s (node %s)", st.Version, st.NodeName)
@@ -446,6 +446,96 @@ func policyEqual(a, b Policy) bool {
 }
 
 // 登録していないクライアント証明書は TLS ハンドシェイクで拒否され、Diagnose がその旨を示す。
+func TestIntegrationAuditLogs(t *testing.T) {
+	c := newIntegrationClient(t)
+	imsi := testIMSI()
+	ctx, tid := opCtx(t)
+	if _, err := c.CreateSubscriber(ctx, SubscriberCreate{IMSI: imsi, Ki: strings.Repeat("1", 32), OPc: strings.Repeat("2", 32)}); err != nil {
+		t.Fatal(err)
+	}
+	cleanup(t, "subscriber", func(ctx context.Context) error { return c.DeleteSubscriber(ctx, imsi) })
+	ctx, keysTID := opCtx(t)
+	if _, err := c.GetSubscriberKeys(ctx, imsi); err != nil {
+		t.Fatal(err)
+	}
+
+	// 監査ログは新しい順で、直前の 2 つの操作が先頭に並ぶ（同じ provisioning-api を同時に操作していなければ）。
+	start := time.Now()
+	l, err := c.ListAuditLogs(t.Context(), AuditLogParams{Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(l.Items) != 2 || l.NextBefore != l.Items[1].ID {
+		t.Fatalf("audit logs = %+v", l)
+	}
+	keysEntry, created := l.Items[0], l.Items[1]
+	if keysEntry.TraceID != keysTID || keysEntry.Action != "subscriber.keys.read" || keysEntry.Target != imsi ||
+		keysEntry.Operator != integrationOperator || keysEntry.MgmtClient == "" || keysEntry.Details != "ki,opc" {
+		t.Errorf("keys read entry = %+v", keysEntry)
+	}
+	if created.TraceID != tid || created.Action != "subscriber.create" || created.Target != imsi || created.TargetKey != "sub:"+imsi ||
+		created.Operator != integrationOperator || created.MgmtClient != keysEntry.MgmtClient ||
+		created.Time.After(keysEntry.Time) || start.Sub(created.Time) > time.Minute {
+		t.Errorf("create entry = %+v", created)
+	}
+	// 監査ログに Ki / OPc は含まない。
+	if strings.Contains(created.Details, strings.Repeat("1", 32)) || strings.Contains(created.Details, strings.Repeat("2", 32)) {
+		t.Errorf("audit details contain keys: %q", created.Details)
+	}
+	if e := checkAudit(t, tid, "subscriber created"); e.Msg != "" && (e.Details != created.Details || e.MgmtClient != created.MgmtClient) {
+		t.Errorf("log file entry %+v differs from %+v", e, created)
+	}
+
+	// 続きは NextBefore より古いものから返る。
+	next, err := c.ListAuditLogs(t.Context(), AuditLogParams{Before: l.NextBefore, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next.Items) > 0 && next.Items[0].ID == created.ID {
+		t.Errorf("next page repeats %s", created.ID)
+	}
+
+	// 形式の正しくない before は 400。
+	_, err = c.ListAuditLogs(t.Context(), AuditLogParams{Before: "bad"})
+	if apiErr, ok := errors.AsType[*Error](err); !ok || apiErr.Status != 400 || apiErr.Problem.Cause != CauseInvalidQueryParam {
+		t.Errorf("bad before: %v", err)
+	}
+}
+
+func TestIntegrationSessions(t *testing.T) {
+	c := newIntegrationClient(t)
+	st, err := c.Status(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err := c.ListSessions(t.Context(), SessionParams{Limit: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 契約テストでは RADIUS の認証をしないので、セッションの中身までは確かめない（ほかの認証が進んでいれば数は変わりうる）。
+	if l.Items == nil || l.Total < int64(len(l.Items)) || len(l.Items) > 1000 || st.SessionCount == nil {
+		t.Errorf("sessions = %d items, total %d; status %+v", len(l.Items), l.Total, st)
+	}
+	for _, s := range l.Items {
+		if s.ID == "" || s.IMSI == "" {
+			t.Errorf("session = %+v", s)
+		}
+	}
+	t.Logf("%d sessions (status %d)", l.Total, *st.SessionCount)
+
+	// テスト用の IMSI のセッションはない。
+	l, err = c.ListSessions(t.Context(), SessionParams{IMSI: testIMSI()})
+	if err != nil || len(l.Items) != 0 || l.Total != 0 {
+		t.Errorf("sessions for test imsi = %+v, %v", l, err)
+	}
+
+	// 形式の正しくない IMSI は 400。
+	_, err = c.ListSessions(t.Context(), SessionParams{IMSI: "123"})
+	if apiErr, ok := errors.AsType[*Error](err); !ok || apiErr.Status != 400 || apiErr.Problem.Cause != CauseInvalidQueryParam {
+		t.Errorf("bad imsi: %v", err)
+	}
+}
+
 func TestIntegrationUnregisteredClient(t *testing.T) {
 	registered := newIntegrationClient(t)
 	dir := t.TempDir()

@@ -19,6 +19,13 @@
     <header><a href="/policies">認可ポリシー</a></header>
     <p class="metric">{{.Status.PolicyCount}}</p>
   </article>
+  {{- /* 0.3.0 より前の provisioning-api はセッション数を返さない。 */}}
+  {{- with .Status.SessionCount}}
+  <article>
+    <header><a href="/sessions">セッション</a></header>
+    <p class="metric">{{.}}</p>
+  </article>
+  {{- end}}
 </div>
 <table>
   <tbody>

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/oyaguma3/web-gui-for-eapaka-radius/internal/provapi"
 	"github.com/oyaguma3/web-gui-for-eapaka-radius/internal/trace"
 )
 
@@ -28,16 +29,19 @@ const (
 
 // auditActionLabels は監査ログの操作の名前。
 var auditActionLabels = map[string]string{
-	auditSubscriberCreate:     "加入者の登録",
-	auditSubscriberUpdate:     "加入者の変更",
-	auditSubscriberDelete:     "加入者の削除",
-	auditSubscriberKeysRead:   "Ki / OPc の表示",
-	auditClientCreate:         "RADIUSクライアントの登録",
-	auditClientUpdate:         "RADIUSクライアントの変更",
-	auditClientDelete:         "RADIUSクライアントの削除",
-	auditClientSecretRead:     "共有シークレットの表示",
-	auditPolicyPut:            "認可ポリシーの保存",
-	auditPolicyDelete:         "認可ポリシーの削除",
+	auditSubscriberCreate:   "加入者の登録",
+	auditSubscriberUpdate:   "加入者の変更",
+	auditSubscriberDelete:   "加入者の削除",
+	auditSubscriberKeysRead: "Ki / OPc の表示",
+	auditClientCreate:       "RADIUSクライアントの登録",
+	auditClientUpdate:       "RADIUSクライアントの変更",
+	auditClientDelete:       "RADIUSクライアントの削除",
+	auditClientSecretRead:   "共有シークレットの表示",
+	auditPolicyPut:          "認可ポリシーの保存",
+	auditPolicyDelete:       "認可ポリシーの削除",
+	// provisioning-api の監査ログでは、認可ポリシーの保存を作成と変更に分けて記録する。
+	"policy.create":           "認可ポリシーの作成",
+	"policy.update":           "認可ポリシーの変更",
 	"login.success":           "ログイン",
 	"login.failure":           "ログインの失敗",
 	"account.create":          "アカウントの作成",
@@ -75,7 +79,7 @@ type auditData struct {
 }
 
 // audit は BFF の監査ログの画面。管理者だけが使える。
-// provisioning-api の監査ログは本PoCのホストのログファイルにあり、初版では画面に出さない（設計概要 §10）。
+// provisioning-api の監査ログは、同じ画面の別のタブ（provAudit）で見る。
 func (h *Handler) audit(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	d := auditData{More: q.Get("before") != ""}
@@ -97,6 +101,36 @@ func (h *Handler) audit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.render(w, r, status, "audit", "監査ログ", d)
+}
+
+// provAuditData は provisioning-api の監査ログの画面に渡す値。
+type provAuditData struct {
+	Rows  []provapi.AuditLogEntry
+	Next  string
+	Error string
+	// More は「さらに古いものを表示」で続きを読み込んだ応答か。
+	More bool
+}
+
+// provAudit は provisioning-api の監査ログ（GET /audit-logs）の画面。管理者だけが使える。
+// 本PoCの Admin TUI での操作は含まない（provisioning-api を通した操作だけ）。
+func (h *Handler) provAudit(w http.ResponseWriter, r *http.Request) {
+	before := r.URL.Query().Get("before")
+	d := provAuditData{More: before != ""}
+	status := http.StatusOK
+	if before != "" && !streamIDPattern.MatchString(before) {
+		status, d.Error = http.StatusBadRequest, "続きの位置の指定が正しくありません。"
+	} else if l, err := h.prov.ListAuditLogs(r.Context(), provapi.AuditLogParams{Before: before, Limit: auditPerPage}); err != nil {
+		status, d.Error = monitoringErrorMessage(err, "監査ログの参照")
+		h.log.Warn("list provisioning api audit logs", "error", err)
+	} else {
+		d.Rows, d.Next = l.Items, l.NextBefore
+	}
+	if d.More && r.Header.Get("HX-Request") == "true" {
+		h.renderBlock(w, r, status, "audit_prov", "audit-prov-more", d)
+		return
+	}
+	h.render(w, r, status, "audit_prov", "監査ログ（provisioning-api）", d)
 }
 
 // actionLabel は監査ログの操作の名前を返す。

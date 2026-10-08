@@ -139,6 +139,25 @@ func TestDashboard(t *testing.T) {
 	}
 }
 
+// TestDashboardSessionCount は、セッション数を返す provisioning-api（0.3.0 から）でだけセッションの数を出すことを確かめる。
+func TestDashboardSessionCount(t *testing.T) {
+	for _, tc := range []struct {
+		count *int64
+		want  bool
+	}{{nil, false}, {new(int64(0)), true}, {new(int64(5)), true}} {
+		prov := newFakeProv()
+		prov.status = provapi.Status{Version: "0.3.0", SubscriberCount: 12, SessionCount: tc.count}
+		env := newTestEnv(t, prov)
+		body := do(env.h, request("GET", "/", env.loginAs(t, ownerID, ownerPW), nil)).Body.String()
+		if got := strings.Contains(body, `<header><a href="/sessions">セッション</a></header>`); got != tc.want {
+			t.Errorf("count %v: session card = %v", tc.count, got)
+		}
+		if tc.count != nil && !strings.Contains(body, fmt.Sprintf(`<p class="metric">%d</p>`, *tc.count)) {
+			t.Errorf("count %d not shown", *tc.count)
+		}
+	}
+}
+
 func TestDashboardProvError(t *testing.T) {
 	for name, tc := range map[string]struct {
 		err  error

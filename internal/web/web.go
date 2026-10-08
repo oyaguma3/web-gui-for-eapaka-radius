@@ -45,6 +45,9 @@ type ProvAPI interface {
 	GetPolicy(ctx context.Context, imsi string) (provapi.Policy, error)
 	PutPolicy(ctx context.Context, imsi string, p provapi.PolicyPut) (provapi.Policy, bool, error)
 	DeletePolicy(ctx context.Context, imsi string) error
+
+	ListAuditLogs(ctx context.Context, p provapi.AuditLogParams) (provapi.AuditLogList, error)
+	ListSessions(ctx context.Context, p provapi.SessionParams) (provapi.SessionList, error)
 }
 
 // AuthService はログイン、セッション、アカウントの操作。*auth.Service が満たす。
@@ -128,7 +131,10 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("POST /policies/{imsi}", h.authed(h.policySave))
 	mux.Handle("POST /policies/{imsi}/delete", h.authed(h.policyDelete))
 
+	mux.Handle("GET /sessions", h.authed(h.sessions))
+
 	mux.Handle("GET /audit", h.adminOnly(h.audit))
+	mux.Handle("GET /audit/prov", h.adminOnly(h.provAudit))
 
 	mux.Handle("GET /accounts", h.adminOnly(h.accountsPage))
 	mux.Handle("POST /accounts", h.adminOnly(h.createAccount))

@@ -26,6 +26,8 @@
 
 GUI はインターネットに直接公開せず、VPN 越しに使う。ホスト OS は Debian を主対象とし、必要なのは Docker Engine と compose プラグインと git だけである。1 つの BFF が扱うのは、本PoCの 1 ノード（provisioning-api 1 つ）である。
 
+本PoCの provisioning-api は 0.3.0 以降（本PoCの main の e2a5a8c 以降）を使う。0.2.0 でも使えるが、セッションの画面と監査ログの「provisioning-api」のタブは「対応していません」と出て使えず、ダッシュボードにセッション数が出ない。
+
 本PoCの Admin TUI とは、原則として同時に使わない。同時に使った場合、他の操作で削除・登録された対象は、画面にその旨を出す。
 
 ## 2. 導入
@@ -190,7 +192,7 @@ docker compose exec eapaka-webgui /eapaka-webgui check-admin
 ```
 接続先: https://provisioning-api:9444/admin/v1
 クライアント証明書のフィンガープリント: b3de2164...d3fdb8
-接続できました。provisioning-api 0.2.0（ノード simwifi、加入者 0、RADIUSクライアント 0、認可ポリシー 0）
+接続できました。provisioning-api 0.3.0（ノード simwifi、加入者 0、RADIUSクライアント 0、認可ポリシー 0）
 ```
 
 `接続できました。` と出れば準備は終わりである。接続できない場合は、原因の見当が表示される（9 章）。
@@ -391,14 +393,15 @@ docker compose exec valkey sh -c 'valkey-cli -a "$VALKEY_PASSWORD" --no-auth-war
 | 種類 | 内容 | 見る場所 |
 |---|---|---|
 | BFF のログ | アクセスログ（トレースID つき）、Provisioning API の呼び出し、エラー | `docker compose logs eapaka-webgui`（標準出力の JSON） |
-| BFF の監査ログ | ログインの成功・失敗、アカウントの作成・削除、パスワードの再設定・変更、BFF を通した Provisioning API の操作（加入者・RADIUSクライアント・認可ポリシーの変更、Ki / OPc と共有シークレットの表示） | 画面の「監査ログ」（管理者）。標準出力にも出る |
-| provisioning-api のログと監査ログ | Provisioning API の呼び出し、変更操作と秘密の値の取得（操作者 `admin_user`、管理クライアント `mgmt_client`） | 本PoCのホストの `deployments/logs_on_host/provisioning-api.log`（初版では画面に出さない） |
+| BFF の監査ログ | ログインの成功・失敗、アカウントの作成・削除、パスワードの再設定・変更、BFF を通した Provisioning API の操作（加入者・RADIUSクライアント・認可ポリシーの変更、Ki / OPc と共有シークレットの表示） | 画面の「監査ログ」の「BFF」のタブ（管理者）。標準出力にも出る |
+| provisioning-api の監査ログ | Provisioning API を通した変更操作と秘密の値の取得（操作者 `admin_user`、管理クライアント `mgmt_client`）。BFF 以外の管理クライアントの操作も含む。Admin TUI の操作は含まない | 画面の「監査ログ」の「provisioning-api」のタブ（管理者。本PoC側の `PROVISIONING_API_AUDIT_MAX` 件、既定 10000 件まで）。すべては本PoCのホストの `deployments/logs_on_host/provisioning-api.log` |
+| provisioning-api のログ | Provisioning API の呼び出し、エラー | 本PoCのホストの `deployments/logs_on_host/provisioning-api.log` |
 
 ```bash
 docker compose logs -f eapaka-webgui
 ```
 
-BFF は Provisioning API を呼ぶとき、操作ごとのトレースID を `X-Trace-ID` で渡す。BFF の監査ログの内容の `trace_id` で、provisioning-api の監査ログの同じ操作を探せる（本PoCの `deployments/` で実行する。`<trace_id>` を置き換える）。
+BFF は Provisioning API を呼ぶとき、操作ごとのトレースID を `X-Trace-ID` で渡す。BFF の監査ログの内容の `trace_id` は、「provisioning-api」のタブのトレースID と同じになる。provisioning-api のログファイルでその操作の前後のログを探す場合は、本PoCの `deployments/` で次を実行する（`<trace_id>` を置き換える）。
 
 ```bash
 grep <trace_id> logs_on_host/provisioning-api.log

@@ -23,6 +23,8 @@ type Status struct {
 	SubscriberCount int64     `json:"subscriberCount"`
 	ClientCount     int64     `json:"clientCount"`
 	PolicyCount     int64     `json:"policyCount"`
+	// SessionCount はアクティブセッションの数。0.3.0 より前の provisioning-api は返さない（nil）。
+	SessionCount *int64 `json:"sessionCount"`
 }
 
 // Status は provisioning-api の状態を取得する。
@@ -294,6 +296,94 @@ func (c *Client) DeletePolicy(ctx context.Context, imsi string) error {
 		method: http.MethodDelete, path: []string{"policies", imsi}, needOperator: true,
 	})
 	return err
+}
+
+// ---- 監査ログ ----
+
+// AuditLogParams は provisioning-api の監査ログの一覧の条件。ゼロ値の項目は指定しない。
+type AuditLogParams struct {
+	// Before は前のページの NextBefore（このエントリID より古いものを返す）。
+	Before string
+	// Limit は 1 ページの件数（1〜500、省略時は 100）。
+	Limit int
+}
+
+// AuditLogEntry は provisioning-api の監査ログの 1 件（変更操作と秘密の値の取得）。
+type AuditLogEntry struct {
+	// ID はエントリID（Valkey の Stream の ID）。
+	ID   string    `json:"id"`
+	Time time.Time `json:"time"`
+	// Operator は X-Operator-Id の値（省略された操作では空文字）。
+	Operator string `json:"operator"`
+	// MgmtClient は管理クライアントの識別名（本PoC側の PROVISIONING_API_ADMIN_CLIENTS の名前）。
+	MgmtClient string `json:"mgmtClient"`
+	// Action は操作（例: subscriber.create、subscriber.keys.read、client.secret.read）。
+	Action string `json:"action"`
+	// Target は対象（加入者・認可ポリシーは IMSI、RADIUSクライアントは ID）。
+	Target    string `json:"target"`
+	TargetKey string `json:"targetKey"`
+	// TraceID はトレースID（BFF の監査ログの trace_id と同じ）。
+	TraceID string `json:"traceId"`
+	// Details は変更内容（秘密の値は含まない）。
+	Details string `json:"details"`
+}
+
+// AuditLogList は provisioning-api の監査ログの 1 ページ（新しい順）。
+type AuditLogList struct {
+	Items []AuditLogEntry `json:"items"`
+	// NextBefore はさらに古いエントリがある場合だけ入る。
+	NextBefore string `json:"nextBefore"`
+}
+
+// ListAuditLogs は provisioning-api の監査ログを新しい順に取得する。
+func (c *Client) ListAuditLogs(ctx context.Context, p AuditLogParams) (AuditLogList, error) {
+	q := url.Values{}
+	setString(q, "before", p.Before)
+	setInt(q, "limit", int64(p.Limit))
+	return c.call[AuditLogList](ctx, request{method: http.MethodGet, path: []string{"audit-logs"}, query: q})
+}
+
+// ---- セッション ----
+
+// SessionParams はセッションの一覧の条件。ゼロ値の項目は指定しない。
+type SessionParams struct {
+	// IMSI を指定すると、その加入者のセッションだけを返す。
+	IMSI string
+	// Limit は返す件数の上限（1〜1000、省略時は 100）。
+	Limit int
+}
+
+// Session はアクティブセッション。
+type Session struct {
+	// ID はセッションの UUID（RADIUS の Class 属性の値）。
+	ID   string `json:"id"`
+	IMSI string `json:"imsi"`
+	// NasIP は NAS の IP アドレス。
+	NasIP         string `json:"nasIp"`
+	NasIdentifier string `json:"nasIdentifier"`
+	// StartTime は接続開始日時。値を持たないセッションではゼロ値。
+	StartTime time.Time `json:"startTime,omitzero"`
+	// ClientIP は端末の IP アドレス（Accounting-Request を受けるまでは空文字）。
+	ClientIP string `json:"clientIp"`
+	// AcctSessionID は Acct-Session-Id（Accounting-Start を受けるまでは空文字）。
+	AcctSessionID string `json:"acctSessionId"`
+	InputOctets   int64  `json:"inputOctets"`
+	OutputOctets  int64  `json:"outputOctets"`
+}
+
+// SessionList はセッションの一覧（接続開始の新しい順）。
+type SessionList struct {
+	Items []Session `json:"items"`
+	// Total は条件に一致するセッションの総数（Items は Limit 件まで）。
+	Total int64 `json:"total"`
+}
+
+// ListSessions はアクティブセッションを接続開始の新しい順に取得する。
+func (c *Client) ListSessions(ctx context.Context, p SessionParams) (SessionList, error) {
+	q := url.Values{}
+	setString(q, "imsi", p.IMSI)
+	setInt(q, "limit", int64(p.Limit))
+	return c.call[SessionList](ctx, request{method: http.MethodGet, path: []string{"sessions"}, query: q})
 }
 
 // ---- 補助 ----

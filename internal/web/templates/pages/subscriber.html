@@ -15,6 +15,7 @@
       <tr><th scope="row">SQN</th><td><code>{{.Sub.SQN}}</code> <small class="muted">（認証のたびに進みます）</small></td></tr>
       <tr><th scope="row">AMF</th><td><code>{{.Sub.AMF}}</code></td></tr>
       <tr><th scope="row">登録日時</th><td>{{datetime .Sub.CreatedAt}}</td></tr>
+      <tr><th scope="row">セッション</th><td><a href="/sessions?imsi={{.Sub.IMSI}}">この加入者のセッションを表示</a></td></tr>
       <tr>
         <th scope="row">認可ポリシー</th>
         <td>

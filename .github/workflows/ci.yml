@@ -84,7 +84,7 @@ jobs:
     env:
       # 契約テストの相手にする本PoC（eapaka-radius-server-poc）のコミット。
       # 本PoCの Provisioning API を変えたら、その main のコミットに更新する。
-      POC_REF: 6584b6b8722cd9bc517021aa74d4959b3ae46507
+      POC_REF: def95e59143c27ca011b81e3ed90f8edcc0762a6
     services:
       # provisioning-api が使う Valkey（このジョブ専用で、テストデータは最後に消える）。
       valkey:

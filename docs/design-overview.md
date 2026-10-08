@@ -1,6 +1,6 @@
 # web-gui-for-eapaka-radius 設計概要
 
-- 状態: 初版を実装済み（2026-10-08。§9 のステップ 1〜5）。次は §10 の 2（本PoCの Provisioning API の拡張）
+- 状態: 初版（2026-10-08。§9 のステップ 1〜5）と、§10 の 2（本PoCの Provisioning API 0.3.0 の監査ログ・セッションの参照。2026-10-09）を実装済み。次は §10 の 3（eapaka-node-provisioner の設計）
 - 対象: BFF と Web GUI（コマンド名 `eapaka-webgui`）。
 - 関連:
   - 管理対象のシステムと Provisioning API: eapaka-radius-server-poc リポジトリの `docs/D-13_Provisioning_API詳細設計書_r*.md`、`docs/openapi/provisioning-api.yaml`
@@ -65,7 +65,8 @@ aka 版 §4.1 と同じ（最初の管理者・管理者・一般ユーザー。
 | RADIUSクライアントの一覧・閲覧（共有シークレット以外） | ○ | ○ | ○ |
 | RADIUSクライアントの登録・変更・削除 | ○ | ○ | × |
 | RADIUSクライアントの共有シークレットの閲覧 | ○ | ○ | × |
-| BFF の監査ログの閲覧 | ○ | ○ | × |
+| セッションの一覧（IMSI での絞り込み） | ○ | ○ | ○ |
+| 監査ログ（BFF・provisioning-api）の閲覧 | ○ | ○ | × |
 | 一般ユーザーアカウントの作成・削除・パスワード再設定 | ○ | ○ | × |
 | 管理者アカウントの作成・削除・パスワード再設定 | ○ | × | × |
 | 自分のパスワード変更 | ×（`.env`） | ○ | ○ |
@@ -90,7 +91,8 @@ aka 版 §5 と同じ（argon2id、サーバー側セッションと `__Host-` C
 
 BFF の監査ログには、aka 版と同じログイン・アカウントの操作に加えて、BFF を通した Provisioning API の操作（加入者の登録・変更・削除、Ki / OPc の表示、RADIUSクライアントの登録・変更・削除、共有シークレットの表示、認可ポリシーの保存・削除）も記録する（2026-10-08 決定）。
 
-- 初版では provisioning-api の監査ログを画面で参照できない（本PoCのホストのログファイルにだけある。§10）ため、BFF の監査ログの画面で操作を追えるようにする。aka 版は管理API の監査ログを画面で参照できたので、BFF にはログインとアカウントの操作だけを記録していた。
+- 初版では provisioning-api の監査ログを画面で参照できなかった（本PoCのホストのログファイルにだけあった）ため、BFF の監査ログの画面で操作を追えるようにした。aka 版は管理API の監査ログを画面で参照できたので、BFF にはログインとアカウントの操作だけを記録していた。
+- Provisioning API 0.3.0 で監査ログを参照できるようになった（`GET /audit-logs`。§10）後も、BFF の監査ログへの記録は続ける。BFF の記録には操作元（ブラウザのアドレス）があり、provisioning-api の記録には BFF 以外の管理クライアントの操作も含まれるため、両方を監査ログの画面のタブで見られるようにする（2026-10-09）。
 - 記録するのは、操作者、操作元、対象（IMSI、RADIUSクライアントは `#ID`）、内容（変えた項目の名前、IP アドレスの変更前後など。秘密の値は含めない）、トレースID。トレースID で provisioning-api の監査ログの `trace_id` と突き合わせられる。
 - 記録は Provisioning API の操作が成功した後に行う（失敗した操作は provisioning-api と同じく記録しない）。
 
@@ -99,7 +101,7 @@ BFF の監査ログには、aka 版と同じログイン・アカウントの操
 | 画面 | 内容 | Provisioning API |
 |---|---|---|
 | ログイン / パスワード変更 / アカウント管理 | aka 版と同じ | - |
-| ダッシュボード | ノード名、provisioning-api のバージョンと起動日時、加入者・RADIUSクライアント・認可ポリシーの件数 | `GET /status` |
+| ダッシュボード | ノード名、provisioning-api のバージョンと起動日時、加入者・RADIUSクライアント・認可ポリシー・セッションの件数（セッションは provisioning-api 0.3.0 以降） | `GET /status` |
 | 加入者一覧 | 50 件ずつのページング（`cursor` / `nextCursor`）、IMSI の前方一致検索、総数 | `GET /subscribers` |
 | 加入者登録 | IMSI、Ki、OPc、AMF（既定 8000）、SQN（既定 000000000000） | `POST /subscribers` |
 | 加入者詳細・編集 | AMF / SQN の表示。管理者は Ki / OPc の表示（ボタン）と変更、SQN / AMF の変更（変わった項目だけを送る）。削除。同じ IMSI の認可ポリシーの有無と、ポリシーの画面への移動 | `GET` / `PATCH` / `DELETE /subscribers/{imsi}`、`GET /subscribers/{imsi}/keys`、`GET /policies/{imsi}` |
@@ -107,8 +109,10 @@ BFF の監査ログには、aka 版と同じログイン・アカウントの操
 | RADIUSクライアント詳細・編集 | ID・IP・名前・ベンダー。管理者は共有シークレットの表示（ボタン）と変更、IP・名前・ベンダーの変更（IP を変えても ID は変わらない）、削除 | `GET` / `PATCH` / `DELETE /clients/{clientId}`、`GET /clients/{clientId}/secret` |
 | 認可ポリシー一覧 | 50 件ずつのページング、IMSI の前方一致検索、総数。default とルールの件数 | `GET /policies` |
 | 認可ポリシー編集 | default（allow / deny）の切り替え、ルールの追加・削除・並べ替え（上から順に評価）。ルールは NAS-ID、許可する SSID（複数）、VLAN ID、Session-Timeout。保存時に全体を置き換える。新規作成（加入者がなくても作れる）と削除 | `GET` / `PUT` / `DELETE /policies/{imsi}` |
-| 監査ログ | BFF の監査ログ（ログイン・アカウントの操作と、BFF を通した Provisioning API の操作。§5）。provisioning-api の監査ログの参照は §10 の拡張後 | - |
+| セッション | アクティブセッションを接続開始の新しい順に 100 件まで（総数も表示）。IMSI（15 桁）での絞り込み。接続開始、IMSI、NAS（NAS-Identifier と IP）、端末の IP、通信量、Acct-Session-Id、セッションID。読み出しだけ | `GET /sessions` |
+| 監査ログ | タブで切り替える。「BFF」は BFF の監査ログ（ログイン・アカウントの操作と、BFF を通した Provisioning API の操作。§5）。「provisioning-api」は provisioning-api の監査ログ（50 件ずつ「さらに古いものを表示」で続きを読み込む。操作者、管理クライアント、操作、対象、内容、トレースID） | `GET /audit-logs`（provisioning-api のタブ） |
 
+- セッションと provisioning-api の監査ログの画面は Provisioning API 0.3.0（本PoC D-13 r6）の API を使う。0.3.0 より前の provisioning-api を相手にすると、その画面では「対応していません（provisioning-api 0.3.0 以降が必要です）」と出し、ダッシュボードではセッションの件数を出さない（他の画面はそのまま使える）。
 - RADIUSクライアントは、サーバー採番の ID（本PoC D-13 r5 / API 0.2.0）で識別し、画面の URL にも ID を使う（例 `/clients/3`）。IP アドレスは変更できる項目として扱う。
 - 認可ポリシーは加入者の下ではなく独立して扱う。接続方式01（aka-only-server）の加入者は鍵を aka-only-server が持つため、本PoCには `sub:{IMSI}` がなく `policy:{IMSI}` だけがある（D-13 §3.3）。
 - 認可ポリシーの編集は本 GUI で新しく作る画面で、ルールの行を HTMX で増やす・減らす・上下に動かす（2026-10-08 決定）。
@@ -172,7 +176,7 @@ aka 版と同じく 5 つのステップに分け、各ステップの終わり�
 
 - 単体テストに加え、BFF 専用 Valkey の結合テストと、provisioning-api との契約テスト（テスト用の IMSI・IP を作って最後に消す）を、環境変数で接続先を与えたときだけ動かす（aka 版と同じ）。
 - GitHub Actions の CI（`.github/workflows/ci.yml`）で、push のたびに整形・vet・テストと、イメージのビルド・compose の設定（同一ホスト / 別ホスト）の確認を行う。
-- 契約テスト（`internal/provapi/integration_test.go`）は、`EAPAKA_WEBGUI_TEST_ADMIN_URL` 等で接続先を与えたときだけ動く。`EAPAKA_WEBGUI_TEST_ADMIN_LOG` に provisioning-api の標準出力のファイルを与えると、監査ログの操作者（`admin_user`）・`mgmt_client`・`trace_id` も確かめる（Provisioning API には監査ログを参照する API がないため）。
+- 契約テスト（`internal/provapi/integration_test.go`）は、`EAPAKA_WEBGUI_TEST_ADMIN_URL` 等で接続先を与えたときだけ動く。`EAPAKA_WEBGUI_TEST_ADMIN_LOG` に provisioning-api の標準出力のファイルを与えると、ログファイルの監査ログの操作者（`admin_user`）・`mgmt_client`・`trace_id` も確かめる。監査ログの参照（`GET /audit-logs`）とセッションの参照（`GET /sessions`）も契約テストで確かめる（セッションは RADIUS の認証をしないため、空の場合の形と検証の誤りだけ）。
 - CI の契約テストでは、本PoCを固定のコミット（ci.yml の `POC_REF`。本PoCの main のコミット）で checkout し、`apps/provisioning-api` を `go build` して、Valkey のサービスコンテナと openssl で作った自己署名のサーバー証明書（B-02 §15.2 と同じ手順）で起動する。BFF のクライアント証明書は `gen-client-cert` で作って登録する（導入手順と同じ流れを CI でも通す）。本PoCの compose 全体は起動しない。本PoCの Provisioning API を変えたら、`POC_REF` を更新する。
 - htmx の振る舞いは playwright-cli でブラウザを操作して確かめる。
 
@@ -181,14 +185,14 @@ aka 版と同じく 5 つのステップに分け、各ステップの終わり�
 | 順序 | 内容 |
 |---|---|
 | 1 | 本 GUI（eapaka-webgui）の初版（§9） |
-| 2 | 本PoCの Provisioning API の拡張（D-13 §10 の候補。監査ログの参照 API、セッション・統計の参照、CSV に相当する一括操作など）と、本 GUI への反映。eapaka-node-provisioner の設計の前に、Provisioning API の作法を確立しておく |
+| 2 | 本PoCの Provisioning API の拡張（D-13 §10 の候補）と、本 GUI への反映。eapaka-node-provisioner の設計の前に、Provisioning API の作法を確立しておく。**実装済み（2026-10-09）**: 監査ログの参照（`GET /audit-logs`）、セッションの参照（`GET /sessions`、`/status` の `sessionCount`）。Provisioning API 0.3.0（本PoC D-13 r6） |
 | 3 | eapaka-node-provisioner（本PoCの Provisioning API と aka-only-server の管理API を組み合わせて操作する統合API）の設計 |
 
-初版の範囲外とするもの（2 で検討）:
+2 で扱わなかったもの（2026-10-09 決定）:
 
-- provisioning-api の監査ログ・サーバーログの参照（本PoCのホストのログファイル `provisioning-api.log` を参照する）
-- セッション・統計の参照（Admin TUI で参照する）
-- CSV のインポート・エクスポート（Admin TUI で行う）
+- CSV のインポート・エクスポート: Admin TUI だけで行い、Provisioning API では扱わない（本PoC D-13 §10）
+- セッションの切断、操作者ごとの権限（provisioning-api 側での権限判定）、IPv6
+- provisioning-api のサーバーログ（監査ログ以外）の参照: 本PoCのホストのログファイル（`provisioning-api.log`）を参照する
 
 ## 11. ドキュメント
 

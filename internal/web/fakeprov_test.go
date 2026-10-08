@@ -33,6 +33,14 @@ type fakeProv struct {
 	lastPolicyPut    provapi.PolicyPut
 	// putPolicyErr を設定すると、PutPolicy だけがそのエラーを返す。
 	putPolicyErr error
+	// auditLogs は provisioning-api の監査ログ（新しい順）。sessions はアクティブセッション（新しい順）。
+	auditLogs []provapi.AuditLogEntry
+	sessions  []provapi.Session
+	// monitorErr を設定すると、ListAuditLogs と ListSessions だけがそのエラーを返す。
+	monitorErr error
+	// lastAuditParams と lastSessionParams は、最後に受け取った一覧の条件。
+	lastAuditParams   provapi.AuditLogParams
+	lastSessionParams provapi.SessionParams
 }
 
 func newFakeProv() *fakeProv {
@@ -356,4 +364,41 @@ func (f *fakeProv) DeletePolicy(ctx context.Context, imsi string) error {
 	}
 	delete(f.policies, imsi)
 	return nil
+}
+
+// ---- 監査ログ・セッション ----
+
+func (f *fakeProv) ListAuditLogs(_ context.Context, p provapi.AuditLogParams) (provapi.AuditLogList, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lastAuditParams = p
+	if err := cmp.Or(f.err, f.monitorErr); err != nil {
+		return provapi.AuditLogList{}, err
+	}
+	items := f.auditLogs
+	if p.Before != "" {
+		i := slices.IndexFunc(items, func(e provapi.AuditLogEntry) bool { return e.ID == p.Before })
+		items = items[i+1:]
+	}
+	l := provapi.AuditLogList{Items: items[:min(len(items), p.Limit)]}
+	if len(items) > p.Limit {
+		l.NextBefore = l.Items[len(l.Items)-1].ID
+	}
+	return l, nil
+}
+
+func (f *fakeProv) ListSessions(_ context.Context, p provapi.SessionParams) (provapi.SessionList, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lastSessionParams = p
+	if err := cmp.Or(f.err, f.monitorErr); err != nil {
+		return provapi.SessionList{}, err
+	}
+	var items []provapi.Session
+	for _, s := range f.sessions {
+		if p.IMSI == "" || s.IMSI == p.IMSI {
+			items = append(items, s)
+		}
+	}
+	return provapi.SessionList{Items: items[:min(len(items), p.Limit)], Total: int64(len(items))}, nil
 }

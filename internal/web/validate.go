@@ -16,8 +16,10 @@ import (
 // Provisioning API の入力形式（本PoCの pkg/validation と OpenAPI に合わせる）。
 // Provisioning API に送る前に BFF でも確かめ、誤りを日本語で示す。
 var (
-	imsiPattern       = regexp.MustCompile(`^[0-9]{15}$`)
-	prefixDigits      = regexp.MustCompile(`^[0-9]{1,15}$`)
+	imsiPattern  = regexp.MustCompile(`^[0-9]{15}$`)
+	prefixDigits = regexp.MustCompile(`^[0-9]{1,15}$`)
+	// streamIDPattern は provisioning-api の監査ログのエントリID（Valkey の Stream の ID）の形式。
+	streamIDPattern   = regexp.MustCompile(`^[0-9]{1,20}-[0-9]{1,20}$`)
 	hex128            = regexp.MustCompile(`^[0-9a-f]{32}$`)
 	sqnPattern        = regexp.MustCompile(`^[0-9a-f]{12}$`)
 	amfPattern        = regexp.MustCompile(`^[0-9a-f]{4}$`)
@@ -128,6 +130,16 @@ func apiErrorMessage(err error, notFound string) (int, string) {
 		return http.StatusNotFound, cmp.Or(notFound, "対象が見つかりません。")
 	}
 	return http.StatusBadGateway, "本PoCの Provisioning API がエラーを返しました。"
+}
+
+// monitoringErrorMessage は、監査ログ・セッションの参照（Provisioning API 0.3.0 から）に失敗したときの
+// ステータスコードと説明を返す。what は「監査ログの参照」などの機能の名前。
+// 0.3.0 より前の provisioning-api は、存在しないパスとして 404（cause なし）を返す。
+func monitoringErrorMessage(err error, what string) (int, string) {
+	if apiErr, ok := errors.AsType[*provapi.Error](err); ok && apiErr.Status == http.StatusNotFound && apiErr.Problem.Cause == "" {
+		return http.StatusBadGateway, "本PoCの Provisioning API が" + what + "に対応していません（provisioning-api 0.3.0 以降が必要です）。"
+	}
+	return apiErrorMessage(err, "")
 }
 
 // notFoundMessage は、対象が見つからないときの説明を作る。

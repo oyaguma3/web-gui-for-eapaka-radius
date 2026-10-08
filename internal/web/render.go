@@ -28,6 +28,8 @@ var funcs = template.FuncMap{
 	"actionLabel": actionLabel,
 	// minPasswordLen はパスワードの最小文字数。入力欄の制限と説明に使う。
 	"minPasswordLen": func() int { return auth.MinPasswordLen },
+	// octets は通信量を単位つきで表示する。
+	"octets": formatOctets,
 	// datetime は日時を BFF のタイムゾーン（環境変数 TZ）で表示する。
 	"datetime": func(t time.Time) string {
 		if t.IsZero() {
@@ -139,4 +141,18 @@ func (h *Handler) renderErrorLink(w http.ResponseWriter, r *http.Request, status
 		return
 	}
 	h.render(w, r, status, "error", http.StatusText(status), data)
+}
+
+// formatOctets は通信量（octets）を、単位をつけた読みやすい形にする（例: 512 B、1.5 KiB、20.0 MiB）。
+func formatOctets(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return strconv.FormatInt(n, 10) + " B"
+	}
+	v, i := float64(n)/unit, 0
+	for v >= unit && i < 4 {
+		v /= unit
+		i++
+	}
+	return strconv.FormatFloat(v, 'f', 1, 64) + " " + "KMGTP"[i:i+1] + "iB"
 }

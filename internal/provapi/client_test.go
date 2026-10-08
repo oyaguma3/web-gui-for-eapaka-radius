@@ -145,11 +145,23 @@ func TestStatusOverMTLS(t *testing.T) {
 	}
 	want := Status{Version: "0.2.0", NodeName: "poc-01", StartedAt: time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC),
 		SubscriberCount: 7, ClientCount: 2, PolicyCount: 3}
+	// 0.2.0 は sessionCount を返さない。
 	if st != want {
 		t.Errorf("status = %+v", st)
 	}
 	if certs.Fingerprint(env.client.ClientCertificate()) != env.clientFP {
 		t.Error("ClientCertificate mismatch")
+	}
+
+	// 0.3.0 からは sessionCount を返す（0 件も 0 として読む）。
+	for _, n := range []int64{0, 4} {
+		env := newTestEnv(t, func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, map[string]any{"version": "0.3.0", "sessionCount": n})
+		})
+		st, err := env.client.Status(t.Context())
+		if err != nil || st.SessionCount == nil || *st.SessionCount != n {
+			t.Errorf("sessionCount %d: %+v, %v", n, st, err)
+		}
 	}
 }
 
@@ -361,6 +373,80 @@ func TestFindRADIUSClientByIP(t *testing.T) {
 	}
 	if _, ok, err := env.client.FindRADIUSClientByIP(t.Context(), "192.0.2.2"); err != nil || ok {
 		t.Errorf("not found: %v, %v", ok, err)
+	}
+}
+
+func TestAuditLogsAndSessions(t *testing.T) {
+	var gotPath, gotQuery string
+	env := newTestEnv(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotQuery = r.URL.Path, r.URL.RawQuery
+		switch r.URL.Path {
+		case "/admin/v1/audit-logs":
+			writeJSON(w, 200, map[string]any{
+				"items": []any{map[string]any{
+					"id": "1760000000000-1", "time": "2026-10-09T01:02:03.456Z", "operator": "alice", "mgmtClient": "bff-01",
+					"action": "subscriber.update", "target": "001010000000001", "targetKey": "sub:001010000000001",
+					"traceId": "t1", "details": "amf: 8000 -> b9b9",
+				}},
+				"nextBefore": "1760000000000-1",
+			})
+		case "/admin/v1/sessions":
+			writeJSON(w, 200, map[string]any{
+				"items": []any{
+					map[string]any{"id": "u1", "imsi": "001010000000001", "nasIp": "192.0.2.1", "nasIdentifier": "AP-01",
+						"startTime": "2026-10-09T01:00:00Z", "clientIp": "10.0.0.5", "acctSessionId": "A1",
+						"inputOctets": 100, "outputOctets": 200},
+					// 接続開始日時のないセッション（startTime は省略される）。
+					map[string]any{"id": "u2", "imsi": "001010000000002", "nasIp": "192.0.2.1", "nasIdentifier": "",
+						"clientIp": "", "acctSessionId": "", "inputOctets": 0, "outputOctets": 0},
+				},
+				"total": 5,
+			})
+		}
+	})
+
+	// 操作者がなくても取得できる（読み出しだけで、provisioning-api の監査ログにも残らない）。
+	l, err := env.client.ListAuditLogs(t.Context(), AuditLogParams{Before: "1760000000001-0", Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/admin/v1/audit-logs" || gotQuery != "before=1760000000001-0&limit=50" {
+		t.Errorf("audit-logs request: %s?%s", gotPath, gotQuery)
+	}
+	want := AuditLogEntry{
+		ID: "1760000000000-1", Time: time.Date(2026, 10, 9, 1, 2, 3, 456e6, time.UTC), Operator: "alice", MgmtClient: "bff-01",
+		Action: "subscriber.update", Target: "001010000000001", TargetKey: "sub:001010000000001", TraceID: "t1",
+		Details: "amf: 8000 -> b9b9",
+	}
+	if len(l.Items) != 1 || !l.Items[0].Time.Equal(want.Time) || l.NextBefore != "1760000000000-1" {
+		t.Fatalf("audit-logs = %+v", l)
+	}
+	l.Items[0].Time = want.Time
+	if l.Items[0] != want {
+		t.Errorf("audit-logs item = %+v", l.Items[0])
+	}
+	env.client.ListAuditLogs(t.Context(), AuditLogParams{})
+	if gotQuery != "" {
+		t.Errorf("audit-logs query without params = %q", gotQuery)
+	}
+
+	s, err := env.client.ListSessions(t.Context(), SessionParams{IMSI: "001010000000001", Limit: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/admin/v1/sessions" || gotQuery != "imsi=001010000000001&limit=1000" {
+		t.Errorf("sessions request: %s?%s", gotPath, gotQuery)
+	}
+	if s.Total != 5 || len(s.Items) != 2 {
+		t.Fatalf("sessions = %+v", s)
+	}
+	if got := s.Items[0]; got.ID != "u1" || got.NasIP != "192.0.2.1" || got.NasIdentifier != "AP-01" ||
+		!got.StartTime.Equal(time.Date(2026, 10, 9, 1, 0, 0, 0, time.UTC)) || got.ClientIP != "10.0.0.5" ||
+		got.AcctSessionID != "A1" || got.InputOctets != 100 || got.OutputOctets != 200 {
+		t.Errorf("session = %+v", got)
+	}
+	if !s.Items[1].StartTime.IsZero() {
+		t.Errorf("session without startTime = %+v", s.Items[1])
 	}
 }
 

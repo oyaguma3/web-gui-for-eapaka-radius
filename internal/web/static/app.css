@@ -116,3 +116,17 @@ article.rule .rule-ops button {
   margin: 0;
   padding: 0.25rem 0.75rem;
 }
+
+/* 監査ログの種類のタブ（BFF / provisioning-api） */
+nav.tabs {
+  border-bottom: 1px solid var(--pico-muted-border-color);
+  margin-bottom: var(--pico-spacing);
+}
+nav.tabs a {
+  text-decoration: none;
+}
+nav.tabs a[aria-current="page"] {
+  font-weight: bold;
+  border-bottom: 0.2rem solid var(--pico-primary);
+  border-radius: 0;
+}

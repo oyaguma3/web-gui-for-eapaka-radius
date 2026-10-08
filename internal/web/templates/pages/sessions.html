@@ -1,0 +1,43 @@
+{{define "content" -}}
+{{with .Data -}}
+<hgroup>
+  <h1>セッション</h1>
+  {{- /* 取得できなかったときは件数を出さない（0 件と誤解されるため）。 */}}
+  <p>{{if .Error}}アクティブセッション{{else if .IMSI}}IMSI {{.IMSI}} のアクティブセッション {{.Total}} 件{{else}}アクティブセッション 全 {{.Total}} 件{{end}}</p>
+</hgroup>
+{{if .Error}}<p class="notice-error" role="alert">{{.Error}}</p>{{end}}
+
+<form method="get" action="/sessions" role="search">
+  <input type="search" name="imsi" value="{{.IMSI}}" placeholder="IMSI（15 桁）" inputmode="numeric" pattern="[0-9]{15}" aria-label="IMSI（15 桁）">
+  <button type="submit">検索</button>
+</form>
+{{if .IMSI}}<p><a href="/sessions">すべてのセッションを表示</a></p>{{end}}
+
+{{if .Items -}}
+{{if .Truncated}}<p class="notice-warn">接続開始の新しい {{len .Items}} 件だけを表示しています。IMSI で絞り込んでください。</p>{{end}}
+<figure>
+  <table>
+    <thead>
+      <tr><th scope="col">接続開始</th><th scope="col">IMSI</th><th scope="col">NAS</th><th scope="col">端末の IP アドレス</th><th scope="col">通信量（入力 / 出力）</th><th scope="col">Acct-Session-Id</th><th scope="col">セッションID</th></tr>
+    </thead>
+    <tbody>
+      {{- range .Items}}
+      <tr>
+        <td>{{datetime .StartTime}}</td>
+        <td><a href="/subscribers/{{.IMSI}}">{{.IMSI}}</a></td>
+        <td>{{with .NasIdentifier}}{{.}}<br>{{end}}<small class="muted">{{.NasIP}}</small></td>
+        <td>{{or .ClientIP "-"}}</td>
+        <td><span title="{{.InputOctets}} octets">{{octets .InputOctets}}</span> / <span title="{{.OutputOctets}} octets">{{octets .OutputOctets}}</span></td>
+        <td>{{with .AcctSessionID}}<code class="wrap">{{.}}</code>{{else}}-{{end}}</td>
+        <td><code class="wrap">{{.ID}}</code></td>
+      </tr>
+      {{- end}}
+    </tbody>
+  </table>
+</figure>
+<p class="muted">端末の IP アドレス、Acct-Session-Id、通信量は、NAS から Accounting-Request を受けるまで空です。セッションは Accounting-Stop を受けるか、有効期限（24 時間。Accounting-Request を受けるたびに延びます）が切れると消えます。</p>
+{{- else if not .Error -}}
+<p>{{if .IMSI}}この加入者の{{end}}アクティブセッションはありません。</p>
+{{- end}}
+{{- end}}
+{{- end}}

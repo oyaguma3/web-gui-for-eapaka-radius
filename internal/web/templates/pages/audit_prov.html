@@ -1,0 +1,49 @@
+{{define "content" -}}
+{{with .Data -}}
+<h1>監査ログ</h1>
+<nav class="tabs" aria-label="監査ログの種類">
+  <ul>
+    <li><a href="/audit">BFF</a></li>
+    <li><a href="/audit/prov" aria-current="page">provisioning-api</a></li>
+  </ul>
+</nav>
+<p>本PoCの provisioning-api の監査ログ（Provisioning API を通した変更操作と、Ki / OPc・共有シークレットの取得）。新しい順。</p>
+<p class="muted">本PoCの Admin TUI での操作は含みません。保持する件数には上限があり（本PoC側の PROVISIONING_API_AUDIT_MAX。既定 10000 件）、それより古いものは本PoCのホストのログファイル（provisioning-api.log）にあります。</p>
+{{if .Error}}<p class="notice-error" role="alert">{{.Error}}</p>{{end}}
+{{if .Rows -}}
+<figure>
+  <table class="audit">
+    <thead>
+      <tr><th scope="col">日時</th><th scope="col">操作者</th><th scope="col">管理クライアント</th><th scope="col">操作</th><th scope="col">対象</th><th scope="col">内容</th><th scope="col">トレースID</th></tr>
+    </thead>
+    <tbody id="audit-rows">
+      {{- range .Rows}}{{template "audit-prov-row" .}}{{end}}
+    </tbody>
+  </table>
+</figure>
+{{template "audit-prov-pager" .}}
+{{- else if not .Error -}}
+<p>記録はありません。</p>
+{{- end}}
+{{- end}}
+{{- end}}
+
+{{define "audit-prov-row" -}}
+<tr><td>{{datetime .Time}}</td><td>{{or .Operator "-"}}</td><td>{{.MgmtClient}}</td><td>{{actionLabel .Action}}</td><td>{{.Target}}</td><td><code class="wrap">{{.Details}}</code></td><td><code class="wrap">{{.TraceID}}</code></td></tr>
+{{- end}}
+
+{{define "audit-prov-pager" -}}
+<div id="audit-pager">
+  {{- if .Next}}
+  <button type="button" class="secondary outline" hx-get="/audit/prov?before={{.Next}}" hx-target="#audit-pager" hx-swap="outerHTML">さらに古いものを表示</button>
+  {{- end}}
+</div>
+{{- end}}
+
+{{/* 「さらに古いものを表示」の応答。行を一覧の末尾に足し、ボタンを置き換える。 */}}
+{{define "audit-prov-more" -}}
+{{template "audit-prov-pager" .}}
+{{if .Error}}<p class="notice-error" role="alert">{{.Error}}</p>{{end}}
+{{/* tbody は表の外に単独では置けないので、template で包む。 */}}
+{{if .Rows}}<template><tbody hx-swap-oob="beforeend:#audit-rows">{{range .Rows}}{{template "audit-prov-row" .}}{{end}}</tbody></template>{{end}}
+{{- end}}
