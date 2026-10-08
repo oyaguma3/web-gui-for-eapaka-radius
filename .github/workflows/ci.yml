@@ -1,0 +1,54 @@
+# テストと、イメージのビルド・compose の設定の確認を行う。
+# Provisioning API との契約テストはステップ2で加える。
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# 同じブランチで新しく push したら、古い実行は止める。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: テスト
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: 整形の確認
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt で整形されていないファイル:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: テスト
+        run: go test -race -count=1 ./...
+
+  docker:
+    name: イメージと compose の設定
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: イメージのビルド
+        run: docker build --build-arg VERSION="${GITHUB_SHA::7}" -t eapaka-webgui:ci .
+      - name: compose の設定（同一ホストと別ホスト）
+        run: |
+          cp .env.example .env
+          sed -i -e 's|^EAPAKA_WEBGUI_VALKEY_PASSWORD=.*|EAPAKA_WEBGUI_VALKEY_PASSWORD=ci|' .env
+          docker compose config -q
+          docker compose config --services
+          COMPOSE_FILE=compose.yaml docker compose config -q

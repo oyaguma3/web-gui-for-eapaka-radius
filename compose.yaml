@@ -1,0 +1,50 @@
+services:
+  eapaka-webgui:
+    build:
+      context: .
+      args:
+        VERSION: ${EAPAKA_WEBGUI_VERSION:-dev}
+    restart: unless-stopped
+    depends_on:
+      valkey:
+        condition: service_healthy
+    environment:
+      TZ: ${TZ:-Asia/Tokyo}
+      EAPAKA_WEBGUI_ADDR: ":8445"
+      EAPAKA_WEBGUI_TLS_CERT: ${EAPAKA_WEBGUI_TLS_CERT:-/data/tls/cert.pem}
+      EAPAKA_WEBGUI_TLS_KEY: ${EAPAKA_WEBGUI_TLS_KEY:-/data/tls/key.pem}
+      EAPAKA_WEBGUI_TLS_HOSTS: ${EAPAKA_WEBGUI_TLS_HOSTS:-localhost,127.0.0.1}
+      EAPAKA_WEBGUI_LOG_LEVEL: ${EAPAKA_WEBGUI_LOG_LEVEL:-info}
+    volumes:
+      # 自動生成したブラウザ向けの自己署名証明書を保存する。
+      - webgui-data:/data
+      # Provisioning API 用の証明書と、持ち込みのブラウザ向け証明書を置く。
+      # コンテナは UID 65532 で動くので、ファイルはこの UID で読めるようにする。
+      - ./certs:/certs:ro
+    ports:
+      # Docker が公開したポートは ufw の規則を通らない。公開範囲はここのバインド先（VPN 側のアドレス）で制御する。
+      - "${EAPAKA_WEBGUI_PUBLISH:-127.0.0.1:8445}:8445"
+    networks:
+      - default
+
+  valkey:
+    image: valkey/valkey:9
+    restart: unless-stopped
+    # アカウントとセッションを保存する（BFF 専用。本PoCの Valkey とは別）。AOF は 1 秒ごとに同期する。
+    command: ["valkey-server", "--appendonly", "yes", "--appendfsync", "everysec", "--requirepass", "${EAPAKA_WEBGUI_VALKEY_PASSWORD}"]
+    environment:
+      VALKEY_PASSWORD: ${EAPAKA_WEBGUI_VALKEY_PASSWORD:?.env に EAPAKA_WEBGUI_VALKEY_PASSWORD を設定してください}
+    volumes:
+      - valkey-data:/data
+    # 本PoCとの共有ネットワークには参加させない。
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli -a \"$$VALKEY_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  webgui-data:
+  valkey-data:

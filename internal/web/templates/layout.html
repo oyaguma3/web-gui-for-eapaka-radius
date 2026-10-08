@@ -1,0 +1,31 @@
+{{define "layout" -}}
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  {{/* CSP に合わせて eval とインラインのスタイル挿入を止める。
+       履歴のスナップショットは画面の HTML（鍵情報を含みうる）をブラウザに保存するので使わない。 */ -}}
+  <meta name="htmx-config" content='{"allowEval":false,"includeIndicatorStyles":false,"historyCacheSize":0,"refreshOnHistoryMiss":true}'>
+  <title>{{.Title}} | EAP-AKA RADIUS 管理</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/pico.min.css">
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <header class="container">
+    <nav>
+      <ul><li><a href="/" class="brand">EAP-AKA RADIUS 管理</a></li></ul>
+    </nav>
+  </header>
+  <main class="container">
+    {{template "content" .}}
+  </main>
+  <footer class="container">
+    <small>web-gui-for-eapaka-radius {{.Version}}</small>
+  </footer>
+</body>
+</html>
+{{- end}}

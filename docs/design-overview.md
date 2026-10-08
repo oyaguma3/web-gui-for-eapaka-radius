@@ -31,8 +31,8 @@ aka 版と同じ。
 - 外部依存は `github.com/valkey-io/valkey-go`（BFF 専用 Valkey）と `golang.org/x/crypto`（argon2id）に限る。
 - module パス: `github.com/oyaguma3/web-gui-for-eapaka-radius`
 - コマンド名は `eapaka-webgui`。設定は環境変数だけで受け取り、名前の接頭辞は `EAPAKA_WEBGUI_` とする（aka 版の `WEBGUI_` と区別する）。
-- 配備: Docker Compose（BFF + 専用 Valkey）。本PoCと同一ホストなら共有ネットワーク用の compose ファイルを重ね、別ホストなら `compose.yaml` だけで動かす（`.env` の `COMPOSE_FILE` で選ぶ。§7.3）。
-- 公開ポートの既定は `127.0.0.1:8445`。aka 版（`127.0.0.1:8444`）と同じホストで並べて動かせるようにする。
+- 配備: Docker Compose（BFF + 専用 Valkey）。本PoCと同一ホストなら共有ネットワーク用の compose ファイル（`compose.eapaka-prov.yaml`）を重ね、別ホストなら `compose.yaml` だけで動かす（`.env` の `COMPOSE_FILE` で選ぶ。§7.3）。コンテナは distroless の nonroot（UID 65532）で動かす。
+- 公開ポートの既定は `127.0.0.1:8445`。aka 版（`127.0.0.1:8444`）と同じホストで並べて動かせるようにする。BFF の待ち受け（`EAPAKA_WEBGUI_ADDR`）の既定も `:8445` とし、バイナリを直接動かしたときに aka 版（`:8443`）とぶつからないようにする。
 - aka 版の認証・セッション・証明書・描画まわりのコードは、コピーして手直しする。共有モジュールへの切り出しは、両方が安定してから検討する。
 
 ## 3. ブラウザ向けの HTTPS とネットワーク
@@ -40,7 +40,7 @@ aka 版と同じ。
 aka 版 §3 と同じ。
 
 - GUI はインターネットに直接公開せず、VPN 越しのアクセスを基本とする。HTTPS は BFF 自身で終端する（リバースプロキシは置かない）。
-- サーバー証明書は自己署名（なければ生成）または持ち込み（`tailscale cert` 等）。ファイルの変更は再起動なしで読み直す。
+- サーバー証明書は自己署名（どちらのファイルもなければ起動時に生成し、既定では `/data/tls/` のボリュームに保存する。SAN は `EAPAKA_WEBGUI_TLS_HOSTS`）または持ち込み（`tailscale cert` 等）。ファイルの内容の変更は 1 分ごとに確かめ、再起動なしで読み直す。
 - TLS 1.2 以上、HTTP/2 に対応する。HSTS は付けない。
 - `ports` のバインド先を VPN 側のアドレスに限定する（Docker が公開したポートは ufw の規則を通らない）。
 
@@ -138,6 +138,8 @@ aka 版 §5 と同じ（argon2id、サーバー側セッションと `__Host-` C
 
 aka 版 §8 と同じ（`user:{id}`、`users`、`session:{sha256(sid)}`、`loginfail:{id}`、`audit`）。本PoCの Valkey とは別のインスタンスで、共有ネットワークには参加させない。
 
+パスワードは `.env` の `EAPAKA_WEBGUI_VALKEY_PASSWORD` で与える。aka 版の `VALKEY_PASSWORD` から名前を変えたのは、同じホストで編集する本PoCの `.env` の `VALKEY_PASSWORD`（本PoCの Valkey のパスワード）と取り違えないようにするため。
+
 ## 9. 進め方
 
 aka 版と同じく 5 つのステップに分け、各ステップの終わりに「作ったもの」と「実際に動かして確かめたこと」を報告して確認をもらう。
@@ -149,6 +151,7 @@ aka 版と同じく 5 つのステップに分け、各ステップの終わり�
 5. compose・運用ガイド・実機（simwifi）での通しの確認
 
 - 単体テストに加え、BFF 専用 Valkey の結合テストと、provisioning-api との契約テスト（テスト用の IMSI・IP を作って最後に消す）を、環境変数で接続先を与えたときだけ動かす（aka 版と同じ）。
+- GitHub Actions の CI（`.github/workflows/ci.yml`）で、push のたびに整形・vet・テストと、イメージのビルド・compose の設定（同一ホスト / 別ホスト）の確認を行う。
 - CI で provisioning-api を実際に起動して契約テストを行う方法（本PoCのイメージの取得の仕方）は、ステップ2 で決める。
 - htmx の振る舞いは playwright-cli でブラウザを操作して確かめる。
 

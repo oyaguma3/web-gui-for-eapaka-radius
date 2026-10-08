@@ -1,0 +1,20 @@
+/* Pico CSS に足りない分だけを書く。 */
+
+/* htmx の通信中表示。htmx-config で htmx 自身のスタイル挿入を止めているので、ここで定義する。 */
+.htmx-indicator {
+  opacity: 0;
+}
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+  opacity: 1;
+  transition: opacity 200ms ease-in;
+}
+
+header nav .brand {
+  font-weight: bold;
+  text-decoration: none;
+}
+
+body > footer {
+  color: var(--pico-muted-color);
+}
