@@ -1,6 +1,6 @@
 # web-gui-for-eapaka-radius 設計概要
 
-- 状態: 設計中（初版。2026-10-08）
+- 状態: 初版を実装済み（2026-10-08。§9 のステップ 1〜5）。次は §10 の 2（本PoCの Provisioning API の拡張）
 - 対象: BFF と Web GUI（コマンド名 `eapaka-webgui`）。
 - 関連:
   - 管理対象のシステムと Provisioning API: eapaka-radius-server-poc リポジトリの `docs/D-13_Provisioning_API詳細設計書_r*.md`、`docs/openapi/provisioning-api.yaml`
@@ -196,4 +196,4 @@ aka 版と同じく 5 つのステップに分け、各ステップの終わり�
 |---|---|
 | `docs/design-overview.md` | 本書 |
 | `docs/screen-spec.md` | 画面仕様と権限ごとの表示差 |
-| `docs/operation-guide.md` | 導入（BFF の登録を含む）、アカウント運用、ブラウザ向け HTTPS、公開範囲、バックアップ、障害時の確認、環境変数（後で作成） |
+| `docs/operation-guide.md` | 導入（BFF の登録を含む）、アカウント運用、ブラウザ向け HTTPS、公開範囲、バックアップ、障害時の確認、環境変数（手順は検証機で実行して確かめたもの） |
