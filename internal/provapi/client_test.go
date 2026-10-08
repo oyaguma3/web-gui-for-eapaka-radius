@@ -10,11 +10,13 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -589,6 +591,13 @@ func TestDiagnose(t *testing.T) {
 	_, err = env.client.Status(t.Context())
 	if got := Diagnose(err); !strings.Contains(got, "PROVISIONING_API_ADMIN_CLIENTS") {
 		t.Errorf("rejected client: %q (err %v)", got, err)
+	}
+
+	// 拒否のアラートより先に接続のリセットが届いた（TLS 1.3 で起こりうる）。
+	resetErr := &url.Error{Op: "Get", URL: "https://provisioning-api:9444/admin/v1/status",
+		Err: &net.OpError{Op: "read", Net: "tcp", Err: os.NewSyscallError("read", syscall.ECONNRESET)}}
+	if got := Diagnose(resetErr); !strings.Contains(got, "接続を切りました") || !strings.Contains(got, "PROVISIONING_API_ADMIN_CLIENTS") {
+		t.Errorf("reset: %q", got)
 	}
 
 	// 接続できない。

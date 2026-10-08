@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"strings"
+	"syscall"
 )
 
 // Diagnose は、Provisioning API に接続できなかったときの原因の見当を、利用者向けの文で返す。
@@ -32,6 +33,15 @@ func Diagnose(err error) string {
 		return "provisioning-api が BFF のクライアント証明書を受け付けませんでした。" +
 			"本PoC側の .env の PROVISIONING_API_ADMIN_CLIENTS に、このクライアント証明書のフィンガープリントが登録されているか" +
 			"（登録後に provisioning-api を作り直したか）、証明書が有効期間内かを確認してください。"
+	}
+	// TLS 1.3 では、provisioning-api がクライアント証明書を検証して拒否する前に、BFF はハンドシェイクを終えて
+	// リクエストを送っている。provisioning-api が読まずに接続を閉じると、拒否のアラートより先に接続のリセットが届き、
+	// アラートを受け取れないことがある（手元の契約テストで 16 回に 1 回ほど）。
+	if errors.Is(err, syscall.ECONNRESET) {
+		return "provisioning-api が接続を切りました。BFF のクライアント証明書が受け付けられなかった可能性があります。" +
+			"本PoC側の .env の PROVISIONING_API_ADMIN_CLIENTS に、このクライアント証明書のフィンガープリントが登録されているか" +
+			"（登録後に provisioning-api を作り直したか）、証明書が有効期間内かを確認してください" +
+			"（provisioning-api のログに PROV_CLIENT_REJECTED が出ていれば、これが原因です）。"
 	}
 	if dnsErr, ok := errors.AsType[*net.DNSError](err); ok && dnsErr.IsNotFound {
 		// 同一ホストの構成では、provisioning-api のコンテナが止まっているときも名前を解決できなくなる。

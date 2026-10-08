@@ -553,6 +553,8 @@ func TestIntegrationUnregisteredClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 拒否のアラート（bad certificate）を受け取る場合と、その前に接続のリセットが届く場合（TLS 1.3）がある。
+	// どちらでも、クライアント証明書の登録を確かめるよう案内する。
 	_, err = c.Status(t.Context())
 	if !IsUnavailable(err) || !strings.Contains(Diagnose(err), "PROVISIONING_API_ADMIN_CLIENTS") {
 		t.Errorf("err = %v, diagnose = %q", err, Diagnose(err))

@@ -501,7 +501,7 @@ docker compose exec eapaka-webgui /eapaka-webgui check-admin
 |---|---|
 | BFF が起動しない | `docker compose logs eapaka-webgui` の `error:`。最初の管理者の設定（未設定、パスワードが 8 文字未満、ユーザーID の形式）、Valkey のパスワード、`certs/` のファイルの有無と所有者（UID 65532。`permission denied` なら 2.5） |
 | `network eapaka-prov declared as external, but could not be found` | 本PoCを `docker compose --profile provisioning up -d` で起動しているか。本PoC側の `PROVISIONING_SHARED_NETWORK` と `.env` の `PROVISIONING_SHARED_NETWORK` が一致しているか。別ホストなら `COMPOSE_FILE=compose.yaml` にする。クライアント証明書を作るとき（2.3）は `COMPOSE_FILE=compose.yaml` を付ける |
-| 「provisioning-api が BFF のクライアント証明書を受け付けませんでした」 | 本PoC側の `PROVISIONING_API_ADMIN_CLIENTS` に、`check-admin` が表示するフィンガープリントが登録されているか。登録した後に provisioning-api を作り直したか（`docker compose --profile provisioning up -d provisioning-api`）。クライアント証明書が有効期間内か。provisioning-api のログの `PROV_CLIENT_REJECTED`（B-02 §15.7） |
+| 「provisioning-api が BFF のクライアント証明書を受け付けませんでした」「provisioning-api が接続を切りました」 | 本PoC側の `PROVISIONING_API_ADMIN_CLIENTS` に、`check-admin` が表示するフィンガープリントが登録されているか。登録した後に provisioning-api を作り直したか（`docker compose --profile provisioning up -d provisioning-api`）。クライアント証明書が有効期間内か。provisioning-api のログの `PROV_CLIENT_REJECTED`（B-02 §15.7）。「接続を切りました」で `PROV_CLIENT_REJECTED` が出ていなければ、provisioning-api の再起動中などに接続が切れただけのこともある（もう一度試す） |
 | 「サーバー証明書が、設定した証明書と一致しません」 | `certs/admin-server.pem` が、本PoCの `deployments/certs/provisioning/server.pem` と同じか（作り直した後は置き直す） |
 | 「サーバー証明書に、接続先のホスト名（または IP アドレス）が入っていません」 | サーバー証明書の SAN に、`EAPAKA_WEBGUI_ADMIN_URL` のホスト名（同一ホストなら `DNS:provisioning-api`）か IP アドレスが入っているか（`openssl x509 -in certs/provisioning/server.pem -noout -ext subjectAltName`） |
 | 「ホスト名（provisioning-api）を解決できません」 | 本PoCの provisioning-api が起動しているか（`--profile provisioning`）。BFF が共有ネットワークに参加しているか（`COMPOSE_FILE`） |
