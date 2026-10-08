@@ -1,0 +1,66 @@
+{{define "content" -}}
+<h1>RADIUSクライアント</h1>
+<p>RADIUS で認証を受け付ける AP などの機器。IP アドレスと共有シークレットで照合します。</p>
+{{template "clients-section" .Data}}
+{{- end}}
+
+{{define "clients-section" -}}
+<div id="clients">
+  {{if .Message}}<p class="notice-ok" role="status">{{.Message}}</p>{{end}}
+  {{if .Error}}<p class="notice-error" role="alert">{{.Error}}</p>{{end}}
+  {{if .Clients -}}
+  <figure>
+    <table>
+      <thead>
+        <tr><th scope="col">ID</th><th scope="col">IP アドレス</th><th scope="col">名前</th><th scope="col">ベンダー</th></tr>
+      </thead>
+      <tbody>
+        {{- range .Clients}}
+        <tr>
+          <td>{{.ID}}</td>
+          <td><a href="/clients/{{.ID}}">{{.IP}}</a></td>
+          <td>{{.Name}}</td>
+          <td>{{or .Vendor "-"}}</td>
+        </tr>
+        {{- end}}
+      </tbody>
+    </table>
+  </figure>
+  {{- else if not .Error -}}
+  <p>RADIUSクライアントは登録されていません。</p>
+  {{- end}}
+
+  {{if .CanEdit -}}
+  <article>
+    <header><strong>RADIUSクライアントの登録</strong></header>
+    <form hx-post="/clients" hx-target="#clients" hx-swap="outerHTML" autocomplete="off">
+      <div class="grid">
+        <label>
+          IP アドレス
+          <input name="ip" value="{{.Form.IP}}" required maxlength="15" inputmode="decimal" placeholder="192.168.10.1" spellcheck="false"{{if .Form.Errors.ip}} aria-invalid="true"{{end}}>
+          <span class="muted">{{or .Form.Errors.ip "IPv4（ID はサーバーが採番します）"}}</span>
+        </label>
+        <label>
+          共有シークレット
+          <input name="secret" value="{{.Form.Secret}}" required maxlength="128" spellcheck="false" class="mono"{{if .Form.Errors.secret}} aria-invalid="true"{{end}}>
+          <span class="muted">{{or .Form.Errors.secret "AP に設定する値（空白なしの 128 文字まで）"}}</span>
+        </label>
+      </div>
+      <div class="grid">
+        <label>
+          名前
+          <input name="name" value="{{.Form.Name}}" required maxlength="64" pattern="[A-Za-z0-9_\-]{1,64}"{{if .Form.Errors.name}} aria-invalid="true"{{end}}>
+          <span class="muted">{{or .Form.Errors.name "英数字と _ - の 64 文字まで"}}</span>
+        </label>
+        <label>
+          ベンダー
+          <input name="vendor" value="{{.Form.Vendor}}" maxlength="64"{{if .Form.Errors.vendor}} aria-invalid="true"{{end}}>
+          <span class="muted">{{or .Form.Errors.vendor "任意（英数字・空白・- の 64 文字まで）"}}</span>
+        </label>
+      </div>
+      <button type="submit">登録する</button>
+    </form>
+  </article>
+  {{- end}}
+</div>
+{{- end}}

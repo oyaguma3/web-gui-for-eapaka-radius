@@ -1,0 +1,76 @@
+{{define "content" -}}
+<nav aria-label="breadcrumb"><ul><li><a href="/clients">RADIUSクライアント</a></li><li>{{.Data.Client.Name}}</li></ul></nav>
+{{template "client-detail" .Data}}
+{{- end}}
+
+{{define "client-detail" -}}
+<div id="client">
+  <h1>{{.Client.Name}} <small class="muted">#{{.Client.ID}}</small></h1>
+  {{if .Message}}<p class="notice-ok" role="status">{{.Message}}</p>{{end}}
+  {{if .Error}}<p class="notice-error" role="alert">{{.Error}}</p>{{end}}
+  <table>
+    <tbody>
+      <tr><th scope="row">ID</th><td>{{.Client.ID}}</td></tr>
+      <tr><th scope="row">IP アドレス</th><td>{{.Client.IP}}</td></tr>
+      <tr><th scope="row">名前</th><td>{{.Client.Name}}</td></tr>
+      <tr><th scope="row">ベンダー</th><td>{{or .Client.Vendor "-"}}</td></tr>
+    </tbody>
+  </table>
+
+  {{if .CanEdit -}}
+  <article>
+    <header><strong>共有シークレット</strong></header>
+    {{template "client-secret" (secretPlaceholder .Client.ID)}}
+  </article>
+
+  <article>
+    <header><strong>設定の変更</strong></header>
+    <form hx-post="/clients/{{.Client.ID}}/update" hx-target="#client" hx-swap="outerHTML" autocomplete="off">
+      <div class="grid">
+        <label>
+          IP アドレス
+          <input name="ip" value="{{.Form.IP}}" required maxlength="15" inputmode="decimal" spellcheck="false"{{if .Form.Errors.ip}} aria-invalid="true"{{end}}>
+          <span class="muted">{{or .Form.Errors.ip "変えても ID は変わりません"}}</span>
+        </label>
+        <label>
+          共有シークレット
+          <input name="secret" maxlength="128" spellcheck="false" class="mono" placeholder="変更する場合だけ入力"{{if .Form.Errors.secret}} aria-invalid="true"{{end}}>
+          {{with .Form.Errors.secret}}<span class="muted">{{.}}</span>{{end}}
+        </label>
+      </div>
+      <div class="grid">
+        <label>
+          名前
+          <input name="name" value="{{.Form.Name}}" required maxlength="64" pattern="[A-Za-z0-9_\-]{1,64}"{{if .Form.Errors.name}} aria-invalid="true"{{end}}>
+          {{with .Form.Errors.name}}<span class="muted">{{.}}</span>{{end}}
+        </label>
+        <label>
+          ベンダー
+          <input name="vendor" value="{{.Form.Vendor}}" maxlength="64"{{if .Form.Errors.vendor}} aria-invalid="true"{{end}}>
+          {{with .Form.Errors.vendor}}<span class="muted">{{.}}</span>{{end}}
+        </label>
+      </div>
+      <small>変わった項目だけを送ります。変更はすぐに反映され、IP アドレスや共有シークレットを変えると、AP 側の設定と合わない間は認証できません。</small>
+      <button type="submit">変更する</button>
+    </form>
+  </article>
+
+  <button type="button" class="contrast" hx-post="/clients/{{.Client.ID}}/delete" hx-target="#client" hx-swap="outerHTML"
+    hx-confirm="RADIUSクライアント {{.Client.Name}}（#{{.Client.ID}}、{{.Client.IP}}）を削除します。この機器からの RADIUS はすぐに受け付けなくなります。よろしいですか？">このクライアントを削除</button>
+  {{- end}}
+</div>
+{{- end}}
+
+{{/* 共有シークレットの表示。表示ボタンを押したときだけ Provisioning API から取得する。 */}}
+{{define "client-secret" -}}
+<div id="secret">
+  {{if .Error}}<p class="notice-error" role="alert">{{.Error}}</p>{{end}}
+  {{if .Shown -}}
+  <p><code>{{.Secret}}</code></p>
+  <small>表示したことは provisioning-api と BFF の監査ログに残りました。画面を移動すると表示は消えます。</small>
+  {{- else -}}
+  <button type="button" class="secondary" hx-post="/clients/{{.ID}}/secret" hx-target="#secret" hx-swap="outerHTML">共有シークレットを表示</button>
+  <small>表示すると provisioning-api と BFF の監査ログに残ります。</small>
+  {{- end}}
+</div>
+{{- end}}

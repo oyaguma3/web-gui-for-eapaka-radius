@@ -427,6 +427,13 @@ func (s *Service) ListAudit(ctx context.Context, actor Account, before string, l
 	return s.store.ListAudit(ctx, before, limit)
 }
 
+// Record は、BFF を通して行った Provisioning API の操作（加入者の登録、秘密の値の表示など）を
+// BFF の監査ログに記録する。detail に秘密の値を入れてはならない。
+// Provisioning API の監査ログは本PoCのホストのログファイルにしかないので、画面で追えるようにここにも残す。
+func (s *Service) Record(ctx context.Context, actor Account, action, target string, detail map[string]any) {
+	s.audit(ctx, actor.ID, action, target, detail)
+}
+
 // audit は BFF の監査ログを標準出力と Valkey の Stream に記録する。
 // 記録に失敗しても操作自体は成功として扱い、エラーをログに残す。
 func (s *Service) audit(ctx context.Context, actor, action, target string, detail map[string]any) {

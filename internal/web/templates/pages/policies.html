@@ -1,0 +1,48 @@
+{{define "content" -}}
+{{with .Data -}}
+<hgroup>
+  <h1>認可ポリシー</h1>
+  <p>{{if .Prefix}}IMSI が {{.Prefix}} で始まる認可ポリシー {{.Total}} 件{{else}}全 {{.Total}} 件{{end}}</p>
+</hgroup>
+<p class="muted">加入者（IMSI）ごとに、接続を許可する NAS と SSID、割り当てる VLAN などを決めます。加入者とは別に保存され、加入者のない IMSI（接続方式01 の加入者など）にも作れます。</p>
+{{if .Message}}<p class="notice-ok" role="status">{{.Message}}</p>{{end}}
+{{if .Error}}<p class="notice-error" role="alert">{{.Error}}</p>{{end}}
+
+<div class="grid">
+  <form method="get" action="/policies" role="search">
+    <input type="search" name="prefix" value="{{.Prefix}}" placeholder="IMSI（前方一致）" inputmode="numeric" pattern="[0-9]{1,15}" aria-label="IMSI（前方一致）">
+    <button type="submit">検索</button>
+  </form>
+  <form method="get" action="/policies/open" role="search">
+    <input name="imsi" value="{{.OpenIMSI}}" placeholder="IMSI（15 桁）" inputmode="numeric" maxlength="15" aria-label="開く IMSI"{{if .OpenError}} aria-invalid="true"{{end}}>
+    <button type="submit" class="secondary">開く・作成する</button>
+  </form>
+</div>
+{{with .OpenError}}<p class="notice-error" role="alert">{{.}}</p>{{end}}
+
+{{if .Items -}}
+<figure>
+  <table>
+    <thead>
+      <tr><th scope="col">IMSI</th><th scope="col">既定の動作</th><th scope="col">ルール</th></tr>
+    </thead>
+    <tbody>
+      {{- range .Items}}
+      <tr>
+        <td><a href="/policies/{{.IMSI}}">{{.IMSI}}</a></td>
+        <td>{{.Default}}</td>
+        <td>{{len .Rules}} 件</td>
+      </tr>
+      {{- end}}
+    </tbody>
+  </table>
+</figure>
+<nav class="pager">
+  {{if .Cursor}}<a href="/policies?prefix={{.Prefix}}">先頭へ</a>{{end}}
+  {{if .Next}}<a href="/policies?prefix={{.Prefix}}&amp;cursor={{.Next}}">次のページ</a>{{end}}
+</nav>
+{{- else if not .Error -}}
+<p>該当する認可ポリシーはありません。</p>
+{{- end}}
+{{- end}}
+{{- end}}

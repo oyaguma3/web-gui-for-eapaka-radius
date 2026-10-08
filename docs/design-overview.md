@@ -88,6 +88,12 @@ aka 版 §5 と同じ（argon2id、サーバー側セッションと `__Host-` C
 - Ki / OPc と RADIUSクライアントの共有シークレットは、詳細画面のボタンを押したときだけ provisioning-api から取得して表示する（`GET /subscribers/{imsi}/keys`、`GET /clients/{clientId}/secret`。取得は provisioning-api の監査ログに残る）。他の操作や画面の移動で表示を消す。
 - これらの値は BFF のログに出さない。provisioning-api のリクエスト・レスポンスのボディはログに出さず、アクセスログにはクエリ文字列を出さない。
 
+BFF の監査ログには、aka 版と同じログイン・アカウントの操作に加えて、BFF を通した Provisioning API の操作（加入者の登録・変更・削除、Ki / OPc の表示、RADIUSクライアントの登録・変更・削除、共有シークレットの表示、認可ポリシーの保存・削除）も記録する（2026-10-08 決定）。
+
+- 初版では provisioning-api の監査ログを画面で参照できない（本PoCのホストのログファイルにだけある。§10）ため、BFF の監査ログの画面で操作を追えるようにする。aka 版は管理API の監査ログを画面で参照できたので、BFF にはログインとアカウントの操作だけを記録していた。
+- 記録するのは、操作者、操作元、対象（IMSI、RADIUSクライアントは `#ID`）、内容（変えた項目の名前、IP アドレスの変更前後など。秘密の値は含めない）、トレースID。トレースID で provisioning-api の監査ログの `trace_id` と突き合わせられる。
+- 記録は Provisioning API の操作が成功した後に行う（失敗した操作は provisioning-api と同じく記録しない）。
+
 ## 6. 画面
 
 | 画面 | 内容 | Provisioning API |
@@ -101,11 +107,16 @@ aka 版 §5 と同じ（argon2id、サーバー側セッションと `__Host-` C
 | RADIUSクライアント詳細・編集 | ID・IP・名前・ベンダー。管理者は共有シークレットの表示（ボタン）と変更、IP・名前・ベンダーの変更（IP を変えても ID は変わらない）、削除 | `GET` / `PATCH` / `DELETE /clients/{clientId}`、`GET /clients/{clientId}/secret` |
 | 認可ポリシー一覧 | 50 件ずつのページング、IMSI の前方一致検索、総数。default とルールの件数 | `GET /policies` |
 | 認可ポリシー編集 | default（allow / deny）の切り替え、ルールの追加・削除・並べ替え（上から順に評価）。ルールは NAS-ID、許可する SSID（複数）、VLAN ID、Session-Timeout。保存時に全体を置き換える。新規作成（加入者がなくても作れる）と削除 | `GET` / `PUT` / `DELETE /policies/{imsi}` |
-| 監査ログ | BFF の監査ログ（provisioning-api の監査ログの参照は §10 の拡張後） | - |
+| 監査ログ | BFF の監査ログ（ログイン・アカウントの操作と、BFF を通した Provisioning API の操作。§5）。provisioning-api の監査ログの参照は §10 の拡張後 | - |
 
 - RADIUSクライアントは、サーバー採番の ID（本PoC D-13 r5 / API 0.2.0）で識別し、画面の URL にも ID を使う（例 `/clients/3`）。IP アドレスは変更できる項目として扱う。
 - 認可ポリシーは加入者の下ではなく独立して扱う。接続方式01（aka-only-server）の加入者は鍵を aka-only-server が持つため、本PoCには `sub:{IMSI}` がなく `policy:{IMSI}` だけがある（D-13 §3.3）。
-- 認可ポリシーの編集は本 GUI で新しく作る画面で、ルールの行を HTMX で増やす・減らす・上下に動かす。入力の検証は provisioning-api の `invalidParams`（例 `rules[0].allowedSsids[1]`）を各行の項目に対応付けて表示する。
+- 認可ポリシーの編集は本 GUI で新しく作る画面で、ルールの行を HTMX で増やす・減らす・上下に動かす（2026-10-08 決定）。
+  - JavaScript は書かない。編集中の状態はフォームにだけ持ち、ルールの追加・削除・並べ替えと既定の動作の切り替えは、フォーム全体を BFF（`POST /policies/{imsi}/edit`）に送って、操作を施した編集欄を返してもらう。provisioning-api には「保存」のときだけ送り（PUT で全体を置き換える）、それまでは何も変えない。
+  - 許可する SSID は 1 行に 1 つ書く（前後の空白と空行は除く）。Admin TUI はカンマ区切りだが、SSID にはカンマも使えるため、行で区切る。
+  - 新しく作るときの既定は deny、ルールなし（Admin TUI と同じ）。既定の動作を allow にして保存するときは、確認ダイアログで警告する（Admin TUI と同じ）。
+  - 入力は保存の前に BFF でも本PoCと同じ規則で確かめる。provisioning-api の `invalidParams`（例 `rules[0].allowedSsids[1]`）も各行の項目に対応付けて表示する。
+- 加入者を削除しても、同じ IMSI の認可ポリシーは自動では削除しない（Provisioning API の加入者の削除と同じ。2026-10-08 決定）。削除の確認ダイアログでそのことを伝え、削除後の一覧で、ポリシーが残っていればそのことと画面へのリンクを出す。2 つの操作をまとめて扱うのは eapaka-node-provisioner の役目（§10）とする。
 - 本PoCの Admin TUI と同時に使った場合の 404 / 409（他の操作で削除された・既に存在する）は、その旨が分かる文で表示し、一覧を読み直せるようにする。
 - 画面の詳細は `docs/screen-spec.md` に書く（ステップ3 でログイン・パスワード変更・アカウント管理・ダッシュボードを記載。残りはステップ4）。
 

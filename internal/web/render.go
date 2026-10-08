@@ -20,6 +20,12 @@ type pages map[string]*template.Template
 
 // funcs はテンプレートで使う関数。
 var funcs = template.FuncMap{
+	// keysPlaceholder は、Ki / OPc をまだ表示していない状態の値を作る。
+	"keysPlaceholder": func(imsi string) keysData { return keysData{IMSI: imsi} },
+	// secretPlaceholder は、共有シークレットをまだ表示していない状態の値を作る。
+	"secretPlaceholder": func(id int64) secretData { return secretData{ID: id} },
+	// actionLabel は監査ログの操作の名前を返す。
+	"actionLabel": actionLabel,
 	// minPasswordLen はパスワードの最小文字数。入力欄の制限と説明に使う。
 	"minPasswordLen": func() int { return auth.MinPasswordLen },
 	// datetime は日時を BFF のタイムゾーン（環境変数 TZ）で表示する。
@@ -118,7 +124,13 @@ type errorData struct {
 }
 
 func (h *Handler) renderError(w http.ResponseWriter, r *http.Request, status int, message string) {
-	data := errorData{Status: status, Message: message}
+	h.renderErrorLink(w, r, status, message, "", "")
+}
+
+// renderErrorLink はエラー画面に案内のリンクを付けて返す。
+// 他の操作で対象が削除された場合などに、一覧を読み直せるようにする。
+func (h *Handler) renderErrorLink(w http.ResponseWriter, r *http.Request, status int, message, link, linkLabel string) {
+	data := errorData{Status: status, Message: message, Link: link, LinkLabel: linkLabel}
 	if r.Header.Get("HX-Request") == "true" {
 		// htmx の操作では、差し替え先に関わらず本文全体をエラーの表示に置き換える。
 		w.Header().Set("HX-Retarget", "main")

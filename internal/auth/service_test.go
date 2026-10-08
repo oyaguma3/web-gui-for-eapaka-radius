@@ -363,3 +363,15 @@ func TestPasswordHash(t *testing.T) {
 		}
 	}
 }
+
+func TestRecord(t *testing.T) {
+	s, st := newTestService(t)
+	ctx := WithRemote(t.Context(), "100.64.0.2:5555")
+	s.Record(ctx, Account{ID: "alice", Role: RoleAdmin}, "subscriber.create", "001010000000001",
+		map[string]any{"trace_id": "abc", "fields": []string{"amf", "sqn"}})
+	e := st.LastAudit()
+	if e.Actor != "alice" || e.Action != "subscriber.create" || e.Target != "001010000000001" || e.Remote != "100.64.0.2:5555" ||
+		e.Detail != `{"fields":["amf","sqn"],"trace_id":"abc"}` {
+		t.Errorf("audit = %+v", e)
+	}
+}

@@ -1,0 +1,45 @@
+{{define "content" -}}
+{{with .Data -}}
+<hgroup>
+  <h1>監査ログ</h1>
+  <p>BFF の監査ログ（ログイン、アカウントの操作、BFF を通した Provisioning API の操作）。新しい順。</p>
+</hgroup>
+<p class="muted">provisioning-api 自身の監査ログは、本PoCのホストのログファイル（provisioning-api.log）にあります。内容の「trace_id」で突き合わせられます。</p>
+{{if .Error}}<p class="notice-error" role="alert">{{.Error}}</p>{{end}}
+{{if .Rows -}}
+<figure>
+  <table class="audit">
+    <thead>
+      <tr><th scope="col">日時</th><th scope="col">操作者</th><th scope="col">操作元</th><th scope="col">操作</th><th scope="col">対象</th><th scope="col">内容</th></tr>
+    </thead>
+    <tbody id="audit-rows">
+      {{- range .Rows}}{{template "audit-row" .}}{{end}}
+    </tbody>
+  </table>
+</figure>
+{{template "audit-pager" .}}
+{{- else if not .Error -}}
+<p>記録はありません。</p>
+{{- end}}
+{{- end}}
+{{- end}}
+
+{{define "audit-row" -}}
+<tr><td>{{datetime .Time}}</td><td>{{.Operator}}</td><td>{{.Remote}}</td><td>{{actionLabel .Action}}</td><td>{{.Target}}</td><td><code class="wrap">{{.Detail}}</code></td></tr>
+{{- end}}
+
+{{define "audit-pager" -}}
+<div id="audit-pager">
+  {{- if .Next}}
+  <button type="button" class="secondary outline" hx-get="/audit?before={{.Next}}" hx-target="#audit-pager" hx-swap="outerHTML">さらに古いものを表示</button>
+  {{- end}}
+</div>
+{{- end}}
+
+{{/* 「さらに古いものを表示」の応答。行を一覧の末尾に足し、ボタンを置き換える。 */}}
+{{define "audit-more" -}}
+{{template "audit-pager" .}}
+{{if .Error}}<p class="notice-error" role="alert">{{.Error}}</p>{{end}}
+{{/* tbody は表の外に単独では置けないので、template で包む。 */}}
+{{if .Rows}}<template><tbody hx-swap-oob="beforeend:#audit-rows">{{range .Rows}}{{template "audit-row" .}}{{end}}</tbody></template>{{end}}
+{{- end}}

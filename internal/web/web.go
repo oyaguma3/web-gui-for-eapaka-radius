@@ -26,6 +26,25 @@ var assets embed.FS
 // 将来 eapaka-node-provisioner に付け替えるときは、これを満たすクライアントを渡す。
 type ProvAPI interface {
 	Status(ctx context.Context) (provapi.Status, error)
+
+	ListSubscribers(ctx context.Context, p provapi.ListParams) (provapi.SubscriberList, error)
+	CreateSubscriber(ctx context.Context, s provapi.SubscriberCreate) (provapi.Subscriber, error)
+	GetSubscriber(ctx context.Context, imsi string) (provapi.Subscriber, error)
+	UpdateSubscriber(ctx context.Context, imsi string, u provapi.SubscriberUpdate) (provapi.Subscriber, error)
+	DeleteSubscriber(ctx context.Context, imsi string) error
+	GetSubscriberKeys(ctx context.Context, imsi string) (provapi.SubscriberKeys, error)
+
+	ListRADIUSClients(ctx context.Context) ([]provapi.RADIUSClient, error)
+	CreateRADIUSClient(ctx context.Context, c provapi.RADIUSClientCreate) (provapi.RADIUSClient, error)
+	GetRADIUSClient(ctx context.Context, id int64) (provapi.RADIUSClient, error)
+	UpdateRADIUSClient(ctx context.Context, id int64, u provapi.RADIUSClientUpdate) (provapi.RADIUSClient, error)
+	DeleteRADIUSClient(ctx context.Context, id int64) error
+	GetRADIUSClientSecret(ctx context.Context, id int64) (string, error)
+
+	ListPolicies(ctx context.Context, p provapi.ListParams) (provapi.PolicyList, error)
+	GetPolicy(ctx context.Context, imsi string) (provapi.Policy, error)
+	PutPolicy(ctx context.Context, imsi string, p provapi.PolicyPut) (provapi.Policy, bool, error)
+	DeletePolicy(ctx context.Context, imsi string) error
 }
 
 // AuthService はログイン、セッション、アカウントの操作。*auth.Service が満たす。
@@ -39,6 +58,7 @@ type AuthService interface {
 	DeleteAccount(ctx context.Context, actor auth.Account, id string) error
 	ResetPassword(ctx context.Context, actor auth.Account, id, password string) error
 	ChangePassword(ctx context.Context, actor auth.Account, token, current, password string) (string, error)
+	Record(ctx context.Context, actor auth.Account, action, target string, detail map[string]any)
 }
 
 // Handler は画面のハンドラー。
@@ -85,6 +105,30 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("POST /password", h.authedForPasswordChange(h.changePassword))
 
 	mux.Handle("GET /{$}", h.authed(h.dashboard))
+
+	mux.Handle("GET /subscribers", h.authed(h.subscribers))
+	mux.Handle("GET /subscribers/new", h.authed(h.subscriberNew))
+	mux.Handle("POST /subscribers", h.authed(h.subscriberCreate))
+	mux.Handle("GET /subscribers/{imsi}", h.authed(h.subscriber))
+	mux.Handle("POST /subscribers/{imsi}/auth", h.adminOnly(h.subscriberAuth))
+	mux.Handle("POST /subscribers/{imsi}/keys", h.adminOnly(h.subscriberKeys))
+	mux.Handle("POST /subscribers/{imsi}/delete", h.authed(h.subscriberDelete))
+
+	mux.Handle("GET /clients", h.authed(h.clients))
+	mux.Handle("POST /clients", h.adminOnly(h.clientCreate))
+	mux.Handle("GET /clients/{id}", h.authed(h.client))
+	mux.Handle("POST /clients/{id}/update", h.adminOnly(h.clientUpdate))
+	mux.Handle("POST /clients/{id}/secret", h.adminOnly(h.clientSecret))
+	mux.Handle("POST /clients/{id}/delete", h.adminOnly(h.clientDelete))
+
+	mux.Handle("GET /policies", h.authed(h.policies))
+	mux.Handle("GET /policies/open", h.authed(h.policyOpen))
+	mux.Handle("GET /policies/{imsi}", h.authed(h.policy))
+	mux.Handle("POST /policies/{imsi}/edit", h.authed(h.policyEdit))
+	mux.Handle("POST /policies/{imsi}", h.authed(h.policySave))
+	mux.Handle("POST /policies/{imsi}/delete", h.authed(h.policyDelete))
+
+	mux.Handle("GET /audit", h.adminOnly(h.audit))
 
 	mux.Handle("GET /accounts", h.adminOnly(h.accountsPage))
 	mux.Handle("POST /accounts", h.adminOnly(h.createAccount))

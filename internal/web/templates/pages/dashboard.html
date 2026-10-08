@@ -8,15 +8,15 @@
 {{- else -}}
 <div class="grid">
   <article>
-    <header>加入者</header>
+    <header><a href="/subscribers">加入者</a></header>
     <p class="metric">{{.Status.SubscriberCount}}</p>
   </article>
   <article>
-    <header>RADIUSクライアント</header>
+    <header><a href="/clients">RADIUSクライアント</a></header>
     <p class="metric">{{.Status.ClientCount}}</p>
   </article>
   <article>
-    <header>認可ポリシー</header>
+    <header><a href="/policies">認可ポリシー</a></header>
     <p class="metric">{{.Status.PolicyCount}}</p>
   </article>
 </div>

@@ -24,7 +24,11 @@
         {{- /* パスワードの変更待ちの間は、他の画面へのリンクを出さない（開いても変更画面に戻る）。 */}}
         {{- if not .MustChangePassword}}
         <li><a href="/">ダッシュボード</a></li>
+        <li><a href="/subscribers">加入者</a></li>
+        <li><a href="/clients">RADIUSクライアント</a></li>
+        <li><a href="/policies">認可ポリシー</a></li>
         {{- if .IsAdmin}}
+        <li><a href="/audit">監査ログ</a></li>
         <li><a href="/accounts">アカウント</a></li>
         {{- end}}
         {{- end}}

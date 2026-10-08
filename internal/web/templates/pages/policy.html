@@ -1,0 +1,87 @@
+{{define "content" -}}
+<nav aria-label="breadcrumb"><ul><li><a href="/policies">認可ポリシー</a></li><li>{{.Data.IMSI}}</li></ul></nav>
+{{template "policy-detail" .Data}}
+{{- end}}
+
+{{/* 編集の操作（ルールの追加・削除・並べ替え、既定の動作の切り替え）と保存のたびに、htmx でこの部分を差し替える。
+     編集の操作はフォーム全体を /edit に送り、操作を施した内容を返してもらう（保存はしない）。 */}}
+{{define "policy-detail" -}}
+<div id="policy">
+  <h1>認可ポリシー {{.IMSI}}</h1>
+  {{if .Message}}<p class="notice-ok" role="status">{{.Message}}</p>{{end}}
+  {{if .Error}}<p class="notice-error" role="alert">{{.Error}}</p>{{end}}
+  {{if not .Exists}}<p class="notice-warn">この IMSI の認可ポリシーはまだありません。「保存」で作成します。</p>{{end}}
+  {{if and .Dirty (not .Error)}}<p class="notice-warn">保存していない変更があります。「保存」で反映します。</p>{{end}}
+  <p>
+    加入者:
+    {{if eq .Subscriber "yes"}}<a href="/subscribers/{{.IMSI}}">登録あり</a>
+    {{- else if eq .Subscriber "no"}}本PoCには登録されていません <span class="muted">（接続方式01 の加入者のように鍵を aka-only-server が持つ場合は、認可ポリシーだけでよい）</span> <a href="/subscribers/new?imsi={{.IMSI}}">加入者を登録</a>
+    {{- else}}確かめられませんでした{{end}}
+  </p>
+
+  <form hx-post="/policies/{{.IMSI}}" hx-target="#policy" hx-swap="outerHTML" hx-disinherit="hx-confirm" autocomplete="off"
+    {{- if eq .Default "allow"}} hx-confirm="既定の動作が allow です。どのルールにも一致しない接続も許可します。保存してよろしいですか？"{{end}}>
+    {{if .Exists}}<input type="hidden" name="exists" value="1">{{end}}
+    <input type="hidden" name="subscriber" value="{{.Subscriber}}">
+    <fieldset>
+      <legend>既定の動作（どのルールにも一致しないとき）</legend>
+      <label>
+        <input type="radio" name="default" value="deny"{{if eq .Default "deny"}} checked{{end}} hx-post="/policies/{{.IMSI}}/edit" hx-trigger="change">
+        deny（拒否）
+      </label>
+      <label>
+        <input type="radio" name="default" value="allow"{{if eq .Default "allow"}} checked{{end}} hx-post="/policies/{{.IMSI}}/edit" hx-trigger="change">
+        allow（許可）
+      </label>
+      {{with .Errors.default}}<small class="notice-error">{{.}}</small>{{end}}
+    </fieldset>
+
+    <h2>ルール</h2>
+    <p class="muted">上から順に評価し、最初に一致したルールを使います。NAS-ID と SSID の * はすべてに一致します。SSID の比較は大文字と小文字を区別しません。</p>
+    {{range .Rules -}}
+    <article class="rule">
+      <header>
+        <strong>ルール {{.No}}</strong>
+        <span class="rule-ops">
+          <button type="button" class="secondary outline" name="op" value="up:{{.Index}}" hx-post="/policies/{{$.IMSI}}/edit"{{if .First}} disabled{{end}} aria-label="ルール {{.No}} を上へ">上へ</button>
+          <button type="button" class="secondary outline" name="op" value="down:{{.Index}}" hx-post="/policies/{{$.IMSI}}/edit"{{if .Last}} disabled{{end}} aria-label="ルール {{.No}} を下へ">下へ</button>
+          <button type="button" class="contrast outline" name="op" value="remove:{{.Index}}" hx-post="/policies/{{$.IMSI}}/edit" aria-label="ルール {{.No}} を削除">削除</button>
+        </span>
+      </header>
+      <div class="grid">
+        <label>
+          NAS-ID
+          <input name="nas_id" value="{{.NASID}}" maxlength="253" spellcheck="false"{{if .Errors.nasId}} aria-invalid="true"{{end}}>
+          <span class="muted">{{or .Errors.nasId "AP の NAS-Identifier（* はすべて）"}}</span>
+        </label>
+        <label>
+          VLAN ID
+          <input name="vlan_id" value="{{.VLANID}}" maxlength="4" inputmode="numeric"{{if .Errors.vlanId}} aria-invalid="true"{{end}}>
+          <span class="muted">{{or .Errors.vlanId "0〜4094。空なら割り当てない"}}</span>
+        </label>
+        <label>
+          Session-Timeout（秒）
+          <input name="session_timeout" value="{{.SessionTimeout}}" maxlength="5" inputmode="numeric"{{if .Errors.sessionTimeout}} aria-invalid="true"{{end}}>
+          <span class="muted">{{or .Errors.sessionTimeout "0〜86400。空か 0 なら送らない"}}</span>
+        </label>
+      </div>
+      <label>
+        許可する SSID
+        <textarea name="ssids" rows="3" spellcheck="false"{{if .Errors.allowedSsids}} aria-invalid="true"{{end}}>{{.SSIDs}}</textarea>
+        <span class="muted">{{or .Errors.allowedSsids "1 行に 1 つ（32 バイトまで。* はすべて）"}}</span>
+      </label>
+    </article>
+    {{- else -}}
+    <p>ルールはありません（すべての接続に既定の動作を使います）。</p>
+    {{- end}}
+    <p><button type="button" class="secondary" name="op" value="add" hx-post="/policies/{{.IMSI}}/edit">ルールを追加</button></p>
+    <button type="submit">保存</button>
+    <small>保存すると、この内容で認可ポリシー全体を置き換えます。すぐに認可に反映されます。</small>
+  </form>
+
+  {{if .Exists -}}
+  <button type="button" class="contrast" hx-post="/policies/{{.IMSI}}/delete" hx-target="#policy" hx-swap="outerHTML"
+    hx-confirm="IMSI {{.IMSI}} の認可ポリシーを削除します。よろしいですか？">この認可ポリシーを削除</button>
+  {{- end}}
+</div>
+{{- end}}

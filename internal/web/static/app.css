@@ -70,3 +70,49 @@ header nav ul {
 header nav li {
   white-space: nowrap;
 }
+
+/* 16 進の値など */
+.mono,
+input.mono {
+  font-family: var(--pico-font-family-monospace);
+}
+
+/* ページ送り */
+.pager {
+  display: flex;
+  gap: 1rem;
+}
+
+/* 補足の文字。フォームの中では small の位置を Pico CSS がずらすので、こちらを使う。 */
+.muted {
+  color: var(--pico-muted-color);
+  font-size: 0.875em;
+}
+
+/* 長い値を折り返す */
+code.wrap {
+  word-break: break-all;
+}
+
+/* 監査ログ */
+table.audit td {
+  font-size: 0.875rem;
+  vertical-align: top;
+}
+
+/* 認可ポリシーのルール */
+article.rule header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+article.rule .rule-ops {
+  display: flex;
+  gap: 0.5rem;
+}
+article.rule .rule-ops button {
+  margin: 0;
+  padding: 0.25rem 0.75rem;
+}
