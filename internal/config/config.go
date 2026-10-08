@@ -20,6 +20,15 @@ type Config struct {
 	// TLSHosts は、自己署名のサーバー証明書を生成するときに SAN へ入れるホスト名と IP アドレス。
 	TLSHosts []string
 
+	// AdminURL は本PoCの Provisioning API（provisioning-api）のベース URL。
+	AdminURL string
+	// AdminClientCertFile は Provisioning API に提示するクライアント証明書（PEM）のパス。
+	AdminClientCertFile string
+	// AdminClientKeyFile はクライアント証明書の秘密鍵（PEM）のパス。空なら AdminClientCertFile から読む。
+	AdminClientKeyFile string
+	// AdminServerCertFile は provisioning-api のサーバー証明書（PEM）のパス。これを信頼する証明書として検証する。
+	AdminServerCertFile string
+
 	// LogLevel はログの出力レベル。
 	LogLevel slog.Level
 }
@@ -31,6 +40,11 @@ func Load() (Config, error) {
 		TLSCertFile: cmp.Or(os.Getenv("EAPAKA_WEBGUI_TLS_CERT"), "/data/tls/cert.pem"),
 		TLSKeyFile:  cmp.Or(os.Getenv("EAPAKA_WEBGUI_TLS_KEY"), "/data/tls/key.pem"),
 		TLSHosts:    splitList(cmp.Or(os.Getenv("EAPAKA_WEBGUI_TLS_HOSTS"), "localhost,127.0.0.1")),
+
+		AdminURL:            cmp.Or(os.Getenv("EAPAKA_WEBGUI_ADMIN_URL"), "https://provisioning-api:9444/admin/v1"),
+		AdminClientCertFile: cmp.Or(os.Getenv("EAPAKA_WEBGUI_ADMIN_CLIENT_CERT"), "/certs/admin-client.pem"),
+		AdminClientKeyFile:  os.Getenv("EAPAKA_WEBGUI_ADMIN_CLIENT_KEY"),
+		AdminServerCertFile: cmp.Or(os.Getenv("EAPAKA_WEBGUI_ADMIN_SERVER_CERT"), "/certs/admin-server.pem"),
 	}
 	if v := os.Getenv("EAPAKA_WEBGUI_LOG_LEVEL"); v != "" {
 		if err := c.LogLevel.UnmarshalText([]byte(v)); err != nil {

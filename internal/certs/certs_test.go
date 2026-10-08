@@ -1,6 +1,8 @@
 package certs
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"io"
 	"log/slog"
 	"net"
@@ -137,5 +139,26 @@ func TestFileReload(t *testing.T) {
 	f.mu.Unlock()
 	if cert, _ = f.GetCertificate(nil); !slices.Equal(cert.Leaf.DNSNames, []string{"newer.example"}) {
 		t.Errorf("GetCertificate after interval: DNSNames = %v", cert.Leaf.DNSNames)
+	}
+}
+
+func TestSelfSignedClient(t *testing.T) {
+	certPEM, keyPEM, err := SelfSignedClient("bff-01", 825*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf := cert.Leaf
+	if leaf.Subject.CommonName != "bff-01" || len(leaf.DNSNames) != 0 || len(leaf.IPAddresses) != 0 {
+		t.Errorf("subject = %v, SAN = %v %v", leaf.Subject, leaf.DNSNames, leaf.IPAddresses)
+	}
+	if !slices.Equal(leaf.ExtKeyUsage, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}) {
+		t.Errorf("ExtKeyUsage = %v", leaf.ExtKeyUsage)
+	}
+	if d := leaf.NotAfter.Sub(leaf.NotBefore); d != 825*24*time.Hour {
+		t.Errorf("validity = %v", d)
 	}
 }

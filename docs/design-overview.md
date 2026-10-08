@@ -113,12 +113,17 @@ aka 版 §5 と同じ（argon2id、サーバー側セッションと `__Host-` C
 - 接続先 URL、BFF のクライアント証明書と秘密鍵、provisioning-api のサーバー証明書（検証用）を設定で与える（`EAPAKA_WEBGUI_ADMIN_URL`、`_ADMIN_CLIENT_CERT`、`_ADMIN_CLIENT_KEY`、`_ADMIN_SERVER_CERT`）。
   - provisioning-api のサーバー証明書を、信頼する証明書として検証に使う（固定）。ホスト名の検証も行うので、接続に使う名前（同一ホストでは `provisioning-api`）が証明書の SAN に入っている必要がある。
   - TLS 1.2 以上、HTTP/2、リダイレクトはたどらない。1 回の呼び出しは 10 秒で打ち切る。
-- provisioning-api には aka-only-server の `client gen-cert` に当たる機能がないため、BFF のクライアント証明書は BFF 側で作る。`eapaka-webgui gen-client-cert` で証明書と秘密鍵を生成し、SHA-256 フィンガープリントを表示する。これを本PoCの `.env` の `PROVISIONING_API_ADMIN_CLIENTS` に `名前=フィンガープリント` で登録する（名前は provisioning-api の監査ログの `mgmt_client` になる）。
+- provisioning-api には aka-only-server の `client gen-cert` に当たる機能がないため、BFF のクライアント証明書は BFF 側で作る。`eapaka-webgui gen-client-cert -name <識別名> [-days 825] [-out-cert F] [-out-key F]` で証明書と秘密鍵を生成し、SHA-256 フィンガープリントを表示する。これを本PoCの `.env` の `PROVISIONING_API_ADMIN_CLIENTS` に `名前=フィンガープリント` で登録する（名前は provisioning-api の監査ログの `mgmt_client` になる）。
+  - 使い方は aka-only-server の `client gen-cert` にそろえる。鍵は ECDSA P-256、証明書はクライアント認証用の自己署名で、CN は識別名（英数字と `.` `_` `-` の 64 文字まで。provisioning-api の識別名の規則と同じ）。
+  - 出力先を省略すると、証明書と秘密鍵を続けて標準出力に出す。`docker compose run --rm --no-deps -T eapaka-webgui gen-client-cert -name bff-01 > certs/admin-client.pem` のように、ホストに Go がなくても作れる。BFF の設定 `EAPAKA_WEBGUI_ADMIN_CLIENT_KEY` を省略すると、証明書のファイルから秘密鍵を読む。
+  - 標準エラーに、フィンガープリントと本PoCの `.env` に貼れる行（`PROVISIONING_API_ADMIN_CLIENTS=bff-01=…`）を出す。出力先のファイルが既にあればエラーにする（使用中の秘密鍵を上書きしない）。
+  - コンテナ（UID 65532）から読めるよう、`certs/` のファイルの所有者を 65532 にする（パーミッション 600 のままホストのユーザーの所有だと、BFF は `permission denied` で起動しない）。
 - 導入時の確認用に `eapaka-webgui check-admin`（provisioning-api に接続して `/status` を取得する）を用意する。起動時にも接続を確かめてログに出す。接続できなくても BFF は起動し、画面に原因の見当を示す（クライアント証明書の未登録、サーバー証明書の不一致や SAN の不足、名前解決や接続の失敗など。aka 版の diagnose を流用）。
 
 ### 7.2 呼び出しの作法
 
 - 操作者のユーザーID はリクエストのコンテキストに入れ、API クライアントが `X-Operator-Id` ヘッダーで渡す。変更操作と秘密の値の取得は、操作者が入っていなければ送らない。
+- BFF はブラウザのリクエストごとにトレースID（16進32桁）を採番してアクセスログに出し、API クライアントが `X-Trace-ID` ヘッダーで渡す（画面からでない呼び出しでは呼び出しごとに採番する）。provisioning-api はこれをログ（`request completed`）と監査ログの `trace_id` に使うので、BFF の操作と provisioning-api の記録をトレースID で突き合わせられる。API クライアントのエラーには、応答の `X-Trace-ID` を持たせる。
 - 変更は JSON Merge Patch（`application/merge-patch+json`）で、変わった項目だけを送る。認可ポリシーは PUT で全体を置き換える。
 - ProblemDetails の `cause` / `invalidParams` を、HTTP のステータスと日本語の文・項目名に対応付けて表示する（aka 版の対応表に `CLIENT_NOT_FOUND`、`POLICY_NOT_FOUND`、`CLIENT_ALREADY_EXISTS`（RADIUSクライアントの登録と IP の変更で、同じ IP が既にある）を加える）。
 - 16 進は provisioning-api が小文字で返すので、そのまま表示する。日時は BFF のタイムゾーン（`TZ`）で表示する。
@@ -152,7 +157,8 @@ aka 版と同じく 5 つのステップに分け、各ステップの終わり�
 
 - 単体テストに加え、BFF 専用 Valkey の結合テストと、provisioning-api との契約テスト（テスト用の IMSI・IP を作って最後に消す）を、環境変数で接続先を与えたときだけ動かす（aka 版と同じ）。
 - GitHub Actions の CI（`.github/workflows/ci.yml`）で、push のたびに整形・vet・テストと、イメージのビルド・compose の設定（同一ホスト / 別ホスト）の確認を行う。
-- CI で provisioning-api を実際に起動して契約テストを行う方法（本PoCのイメージの取得の仕方）は、ステップ2 で決める。
+- 契約テスト（`internal/provapi/integration_test.go`）は、`EAPAKA_WEBGUI_TEST_ADMIN_URL` 等で接続先を与えたときだけ動く。`EAPAKA_WEBGUI_TEST_ADMIN_LOG` に provisioning-api の標準出力のファイルを与えると、監査ログの操作者（`admin_user`）・`mgmt_client`・`trace_id` も確かめる（Provisioning API には監査ログを参照する API がないため）。
+- CI の契約テストでは、本PoCを固定のコミット（ci.yml の `POC_REF`。本PoCの main のコミット）で checkout し、`apps/provisioning-api` を `go build` して、Valkey のサービスコンテナと openssl で作った自己署名のサーバー証明書（B-02 §15.2 と同じ手順）で起動する。BFF のクライアント証明書は `gen-client-cert` で作って登録する（導入手順と同じ流れを CI でも通す）。本PoCの compose 全体は起動しない。本PoCの Provisioning API を変えたら、`POC_REF` を更新する。
 - htmx の振る舞いは playwright-cli でブラウザを操作して確かめる。
 
 ## 10. 今後の計画

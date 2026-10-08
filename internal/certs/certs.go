@@ -41,6 +41,16 @@ func Fingerprint(cert *x509.Certificate) string {
 // SelfSigned はサーバー認証用の ECDSA P-256 の鍵と自己署名証明書を生成し、PEM で返す。
 // hosts は SAN で、IP アドレスとして解釈できるものは IP、それ以外は DNS 名として入れる。
 func SelfSigned(commonName string, hosts []string, validFor time.Duration) (certPEM, keyPEM []byte, err error) {
+	return selfSigned(commonName, hosts, validFor, x509.ExtKeyUsageServerAuth)
+}
+
+// SelfSignedClient はクライアント認証用の ECDSA P-256 の鍵と自己署名証明書を生成し、PEM で返す。
+// Provisioning API に提示する BFF のクライアント証明書に使う（provisioning-api はフィンガープリントで照合する）。
+func SelfSignedClient(commonName string, validFor time.Duration) (certPEM, keyPEM []byte, err error) {
+	return selfSigned(commonName, nil, validFor, x509.ExtKeyUsageClientAuth)
+}
+
+func selfSigned(commonName string, hosts []string, validFor time.Duration, usage x509.ExtKeyUsage) (certPEM, keyPEM []byte, err error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generate key: %w", err)
@@ -57,7 +67,7 @@ func SelfSigned(commonName string, hosts []string, validFor time.Duration) (cert
 		NotBefore:             notBefore,
 		NotAfter:              notBefore.Add(validFor),
 		KeyUsage:              x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		ExtKeyUsage:           []x509.ExtKeyUsage{usage},
 		BasicConstraintsValid: true,
 	}
 	for _, h := range hosts {

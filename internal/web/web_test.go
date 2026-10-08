@@ -1,10 +1,13 @@
 package web
 
 import (
+	"bytes"
+	"encoding/json/v2"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -111,5 +114,30 @@ func TestCrossOriginProtection(t *testing.T) {
 	r.Header.Set("Sec-Fetch-Site", "same-origin")
 	if w := do(h, r); w.Code != http.StatusNotFound {
 		t.Errorf("same-origin POST: status = %d", w.Code)
+	}
+}
+
+func TestAccessLogTraceID(t *testing.T) {
+	var buf bytes.Buffer
+	h, err := New(Options{Log: slog.New(slog.NewJSONHandler(&buf, nil)), Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	do(h.Routes(), httptest.NewRequest("GET", "https://gui.example/?imsi=001010000000001", nil))
+
+	var entry struct {
+		Msg     string `json:"msg"`
+		Path    string `json:"path"`
+		TraceID string `json:"trace_id"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
+		t.Fatalf("%v: %s", err, buf.String())
+	}
+	if entry.Msg != "access" || entry.Path != "/" || !regexp.MustCompile(`^[0-9a-f]{32}$`).MatchString(entry.TraceID) {
+		t.Errorf("access log = %s", buf.String())
+	}
+	// クエリ文字列は出さない。
+	if strings.Contains(buf.String(), "001010000000001") {
+		t.Errorf("query string is logged: %s", buf.String())
 	}
 }

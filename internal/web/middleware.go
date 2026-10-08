@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/oyaguma3/web-gui-for-eapaka-radius/internal/trace"
 )
 
 // contentSecurityPolicy は画面の CSP。スクリプトとスタイルは同梱のファイルだけを許可する。
@@ -49,9 +51,13 @@ func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter 
 
 // accessLog はリクエストごとにアクセスログを出す。静的ファイルは debug レベルにする。
 // クエリ文字列は出さない（検索条件などを残さないため）。
+// リクエストごとにトレースID を採番してコンテキストに入れる。Provisioning API の呼び出しに X-Trace-ID で渡るので、
+// provisioning-api のログ・監査ログの trace_id と突き合わせられる。
 func (h *Handler) accessLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		traceID := trace.New()
+		r = r.WithContext(trace.With(r.Context(), traceID))
 		rec := &statusRecorder{ResponseWriter: w}
 		next.ServeHTTP(rec, r)
 
@@ -65,6 +71,7 @@ func (h *Handler) accessLog(next http.Handler) http.Handler {
 			"status", cmp.Or(rec.status, http.StatusOK),
 			"duration_ms", time.Since(start).Milliseconds(),
 			"remote", r.RemoteAddr,
+			"trace_id", traceID,
 		)
 	})
 }

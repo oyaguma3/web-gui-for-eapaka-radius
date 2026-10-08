@@ -14,11 +14,16 @@ services:
       EAPAKA_WEBGUI_TLS_CERT: ${EAPAKA_WEBGUI_TLS_CERT:-/data/tls/cert.pem}
       EAPAKA_WEBGUI_TLS_KEY: ${EAPAKA_WEBGUI_TLS_KEY:-/data/tls/key.pem}
       EAPAKA_WEBGUI_TLS_HOSTS: ${EAPAKA_WEBGUI_TLS_HOSTS:-localhost,127.0.0.1}
+      EAPAKA_WEBGUI_ADMIN_URL: ${EAPAKA_WEBGUI_ADMIN_URL:-https://provisioning-api:9444/admin/v1}
+      EAPAKA_WEBGUI_ADMIN_CLIENT_CERT: /certs/admin-client.pem
+      EAPAKA_WEBGUI_ADMIN_CLIENT_KEY: ${EAPAKA_WEBGUI_ADMIN_CLIENT_KEY:-}
+      EAPAKA_WEBGUI_ADMIN_SERVER_CERT: /certs/admin-server.pem
       EAPAKA_WEBGUI_LOG_LEVEL: ${EAPAKA_WEBGUI_LOG_LEVEL:-info}
     volumes:
       # 自動生成したブラウザ向けの自己署名証明書を保存する。
       - webgui-data:/data
-      # Provisioning API 用の証明書と、持ち込みのブラウザ向け証明書を置く。
+      # Provisioning API 用の証明書（admin-client.pem: gen-client-cert で作った BFF のクライアント証明書と秘密鍵、
+      # admin-server.pem: 本PoCの provisioning-api のサーバー証明書）と、持ち込みのブラウザ向け証明書を置く。
       # コンテナは UID 65532 で動くので、ファイルはこの UID で読めるようにする。
       - ./certs:/certs:ro
     ports:

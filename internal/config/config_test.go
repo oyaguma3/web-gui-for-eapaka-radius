@@ -7,7 +7,8 @@ import (
 )
 
 func TestLoadDefaults(t *testing.T) {
-	for _, name := range []string{"EAPAKA_WEBGUI_ADDR", "EAPAKA_WEBGUI_TLS_CERT", "EAPAKA_WEBGUI_TLS_KEY", "EAPAKA_WEBGUI_TLS_HOSTS", "EAPAKA_WEBGUI_LOG_LEVEL"} {
+	for _, name := range []string{"EAPAKA_WEBGUI_ADDR", "EAPAKA_WEBGUI_TLS_CERT", "EAPAKA_WEBGUI_TLS_KEY", "EAPAKA_WEBGUI_TLS_HOSTS", "EAPAKA_WEBGUI_LOG_LEVEL",
+		"EAPAKA_WEBGUI_ADMIN_URL", "EAPAKA_WEBGUI_ADMIN_CLIENT_CERT", "EAPAKA_WEBGUI_ADMIN_CLIENT_KEY", "EAPAKA_WEBGUI_ADMIN_SERVER_CERT"} {
 		t.Setenv(name, "")
 	}
 	c, err := Load()
@@ -22,6 +23,10 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if c.LogLevel != slog.LevelInfo {
 		t.Errorf("LogLevel = %v", c.LogLevel)
+	}
+	if c.AdminURL != "https://provisioning-api:9444/admin/v1" || c.AdminClientCertFile != "/certs/admin-client.pem" ||
+		c.AdminClientKeyFile != "" || c.AdminServerCertFile != "/certs/admin-server.pem" {
+		t.Errorf("admin = %q %q %q %q", c.AdminURL, c.AdminClientCertFile, c.AdminClientKeyFile, c.AdminServerCertFile)
 	}
 }
 
