@@ -1,0 +1,20 @@
+{{define "content" -}}
+<article class="narrow">
+  <header><strong>ログイン</strong></header>
+  {{with .Data -}}
+  {{if .Error}}<p class="notice-error" role="alert">{{.Error}}</p>{{end}}
+  <form method="post" action="/login">
+    <input type="hidden" name="next" value="{{.Next}}">
+    <label>
+      ユーザーID
+      <input name="id" value="{{.ID}}" autocomplete="username" required autofocus maxlength="64">
+    </label>
+    <label>
+      パスワード
+      <input type="password" name="password" autocomplete="current-password" required>
+    </label>
+    <button type="submit">ログイン</button>
+  </form>
+  {{- end}}
+</article>
+{{- end}}

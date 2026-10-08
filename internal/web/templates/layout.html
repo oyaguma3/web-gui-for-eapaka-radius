@@ -6,8 +6,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   {{/* CSP に合わせて eval とインラインのスタイル挿入を止める。
-       履歴のスナップショットは画面の HTML（鍵情報を含みうる）をブラウザに保存するので使わない。 */ -}}
-  <meta name="htmx-config" content='{"allowEval":false,"includeIndicatorStyles":false,"historyCacheSize":0,"refreshOnHistoryMiss":true}'>
+       履歴のスナップショットは画面の HTML（鍵情報を含みうる）をブラウザに保存するので使わない。
+       入力の誤りなどは 4xx で説明つきの HTML を返すので、4xx と 5xx の応答も差し替える（htmx の既定では差し替えない）。 */ -}}
+  <meta name="htmx-config" content='{"allowEval":false,"includeIndicatorStyles":false,"historyCacheSize":0,"refreshOnHistoryMiss":true,"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}]}'>
   <title>{{.Title}} | EAP-AKA RADIUS 管理</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/static/pico.min.css">
@@ -18,6 +19,33 @@
   <header class="container">
     <nav>
       <ul><li><a href="/" class="brand">EAP-AKA RADIUS 管理</a></li></ul>
+      {{- with .User}}
+      <ul>
+        {{- /* パスワードの変更待ちの間は、他の画面へのリンクを出さない（開いても変更画面に戻る）。 */}}
+        {{- if not .MustChangePassword}}
+        <li><a href="/">ダッシュボード</a></li>
+        {{- if .IsAdmin}}
+        <li><a href="/accounts">アカウント</a></li>
+        {{- end}}
+        {{- end}}
+        <li>
+          <details class="dropdown">
+            <summary>{{.ID}}</summary>
+            <ul dir="rtl">
+              <li><span class="role">{{.Role.Label}}</span></li>
+              {{- if .CanChangeOwnPassword}}
+              <li><a href="/password">パスワード変更</a></li>
+              {{- end}}
+              <li>
+                <form method="post" action="/logout" class="logout">
+                  <button type="submit" class="secondary outline">ログアウト</button>
+                </form>
+              </li>
+            </ul>
+          </details>
+        </li>
+      </ul>
+      {{- end}}
     </nav>
   </header>
   <main class="container">

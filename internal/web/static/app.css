@@ -18,3 +18,55 @@ header nav .brand {
 body > footer {
   color: var(--pico-muted-color);
 }
+
+/* ダッシュボードの数値 */
+.metric {
+  font-size: 2rem;
+  font-weight: bold;
+  margin-bottom: 0;
+}
+
+/* エラーの通知 */
+.notice-error {
+  border-left: 0.25rem solid var(--pico-del-color);
+}
+
+/* 完了と注意の通知 */
+.notice-ok {
+  border-left: 0.25rem solid var(--pico-ins-color);
+  padding-left: 0.75rem;
+}
+.notice-warn {
+  border-left: 0.25rem solid var(--pico-mark-background-color);
+  padding-left: 0.75rem;
+}
+p.notice-error {
+  padding-left: 0.75rem;
+}
+
+/* ログインなど、幅の狭いフォーム */
+.narrow {
+  max-width: 32rem;
+  margin-inline: auto;
+}
+
+/* ヘッダーのメニュー */
+header nav .role {
+  color: var(--pico-muted-color);
+}
+header nav form.logout {
+  margin: 0;
+}
+header nav form.logout button {
+  width: 100%;
+  margin: 0;
+}
+
+/* 画面幅が狭いときは、メニューの項目を折り返さずに並びごと次の行へ回す。 */
+header nav,
+header nav ul {
+  flex-wrap: wrap;
+}
+header nav li {
+  white-space: nowrap;
+}

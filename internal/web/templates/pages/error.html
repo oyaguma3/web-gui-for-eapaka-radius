@@ -2,6 +2,6 @@
 <article>
   <header><strong>{{.Data.Status}} {{.Title}}</strong></header>
   <p>{{.Data.Message}}</p>
-  <footer><a href="/">ホームへ戻る</a></footer>
+  <footer>{{if .Data.Link}}<a href="{{.Data.Link}}">{{.Data.LinkLabel}}</a>{{else}}<a href="/">ホームへ戻る</a>{{end}}</footer>
 </article>
 {{- end}}

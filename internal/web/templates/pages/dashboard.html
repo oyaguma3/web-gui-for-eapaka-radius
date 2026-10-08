@@ -1,0 +1,32 @@
+{{define "content" -}}
+<h1>ダッシュボード</h1>
+{{with .Data -}}
+{{if .ProvError -}}
+<article class="notice-error" role="alert">
+  <p>{{.ProvError}}</p>
+</article>
+{{- else -}}
+<div class="grid">
+  <article>
+    <header>加入者</header>
+    <p class="metric">{{.Status.SubscriberCount}}</p>
+  </article>
+  <article>
+    <header>RADIUSクライアント</header>
+    <p class="metric">{{.Status.ClientCount}}</p>
+  </article>
+  <article>
+    <header>認可ポリシー</header>
+    <p class="metric">{{.Status.PolicyCount}}</p>
+  </article>
+</div>
+<table>
+  <tbody>
+    <tr><th scope="row">ノード名</th><td>{{.Status.NodeName}}</td></tr>
+    <tr><th scope="row">provisioning-api のバージョン</th><td>{{.Status.Version}}</td></tr>
+    <tr><th scope="row">provisioning-api の起動日時</th><td>{{datetime .Status.StartedAt}}</td></tr>
+  </tbody>
+</table>
+{{- end}}
+{{- end}}
+{{- end}}

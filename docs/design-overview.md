@@ -77,7 +77,11 @@ aka 版 §4.1 と同じ（最初の管理者・管理者・一般ユーザー。
 
 ## 5. セッションとセキュリティ
 
-aka 版 §5 と同じ（argon2id、サーバー側セッションと `__Host-` Cookie、無操作 30 分・最大 12 時間、スタンプによる無効化、`CrossOriginProtection`、ログイン試行回数の制限、`Cache-Control: no-store`、CSP、htmx の履歴キャッシュを使わない、BFF の監査ログ）。
+aka 版 §5 と同じ（argon2id、サーバー側セッションと `__Host-` Cookie、無操作 30 分・最大 12 時間、スタンプによる無効化、`CrossOriginProtection`、ログイン試行回数の制限、`Cache-Control: no-store`、CSP、htmx の履歴キャッシュを使わない、BFF の監査ログ）。実装は aka 版の `internal/auth`・`internal/store`・画面をコピーして手直しした。
+
+- セッションの Cookie の名前は `__Host-eapaka-webgui-session` とする。Cookie はポートを区別しないので、同じホスト名で aka 版（`__Host-aka-webgui-session`）と並べても互いに上書きしないよう、別の名前にする。
+- 最初の管理者のパスワードハッシュのソルトは、ユーザーID と BFF の名前（`eapaka-webgui`）から決める。`.env` のパスワードを変えずに起動し直してもセッションは続き、変えて起動し直すとセッションは無効になる。
+- ログイン中のユーザーID は、Provisioning API の操作者（`X-Operator-Id`）としてリクエストのコンテキストに入れる。
 
 加えて、本PoC固有の秘密の値の扱い:
 
@@ -103,7 +107,7 @@ aka 版 §5 と同じ（argon2id、サーバー側セッションと `__Host-` C
 - 認可ポリシーは加入者の下ではなく独立して扱う。接続方式01（aka-only-server）の加入者は鍵を aka-only-server が持つため、本PoCには `sub:{IMSI}` がなく `policy:{IMSI}` だけがある（D-13 §3.3）。
 - 認可ポリシーの編集は本 GUI で新しく作る画面で、ルールの行を HTMX で増やす・減らす・上下に動かす。入力の検証は provisioning-api の `invalidParams`（例 `rules[0].allowedSsids[1]`）を各行の項目に対応付けて表示する。
 - 本PoCの Admin TUI と同時に使った場合の 404 / 409（他の操作で削除された・既に存在する）は、その旨が分かる文で表示し、一覧を読み直せるようにする。
-- 画面の詳細は `docs/screen-spec.md`（後で作成）に書く。
+- 画面の詳細は `docs/screen-spec.md` に書く（ステップ3 でログイン・パスワード変更・アカウント管理・ダッシュボードを記載。残りはステップ4）。
 
 ## 7. Provisioning API との連携
 
@@ -180,5 +184,5 @@ aka 版と同じく 5 つのステップに分け、各ステップの終わり�
 | ファイル | 内容 |
 |---|---|
 | `docs/design-overview.md` | 本書 |
-| `docs/screen-spec.md` | 画面仕様と権限ごとの表示差（後で作成） |
+| `docs/screen-spec.md` | 画面仕様と権限ごとの表示差 |
 | `docs/operation-guide.md` | 導入（BFF の登録を含む）、アカウント運用、ブラウザ向け HTTPS、公開範囲、バックアップ、障害時の確認、環境変数（後で作成） |

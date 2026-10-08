@@ -18,6 +18,17 @@ jobs:
     name: テスト
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      # internal/store の結合テストに使う。論理データベース 1 番を空にして使う。
+      valkey:
+        image: valkey/valkey:9
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -33,8 +44,21 @@ jobs:
           fi
       - name: go vet
         run: go vet ./...
-      - name: テスト
+      - name: テスト（Valkey の結合テストを含む）
+        env:
+          EAPAKA_WEBGUI_TEST_VALKEY_ADDR: localhost:6379
         run: go test -race -count=1 ./...
+      - name: Valkey の結合テストが実行されたことの確認
+        env:
+          EAPAKA_WEBGUI_TEST_VALKEY_ADDR: localhost:6379
+        run: |
+          set -o pipefail
+          # 接続先がなければ結合テストはスキップされ、テスト自体は成功してしまうので、別に確かめる。
+          go test -count=1 -v ./internal/store/ | tee store.log
+          if grep -q -- '--- SKIP' store.log; then
+            echo "Valkey の結合テストがスキップされました"
+            exit 1
+          fi
 
   docker:
     name: イメージと compose の設定
@@ -47,7 +71,8 @@ jobs:
       - name: compose の設定（同一ホストと別ホスト）
         run: |
           cp .env.example .env
-          sed -i -e 's|^EAPAKA_WEBGUI_VALKEY_PASSWORD=.*|EAPAKA_WEBGUI_VALKEY_PASSWORD=ci|' .env
+          sed -i -e 's|^EAPAKA_WEBGUI_VALKEY_PASSWORD=.*|EAPAKA_WEBGUI_VALKEY_PASSWORD=ci|' \
+            -e 's|^EAPAKA_WEBGUI_INITIAL_ADMIN_PASSWORD=.*|EAPAKA_WEBGUI_INITIAL_ADMIN_PASSWORD=ci-password|' .env
           docker compose config -q
           docker compose config --services
           COMPOSE_FILE=compose.yaml docker compose config -q

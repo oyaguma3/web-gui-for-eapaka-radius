@@ -3,22 +3,82 @@ package web
 import (
 	"bytes"
 	"encoding/json/v2"
+	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/oyaguma3/web-gui-for-eapaka-radius/internal/auth"
+	"github.com/oyaguma3/web-gui-for-eapaka-radius/internal/auth/authtest"
+	"github.com/oyaguma3/web-gui-for-eapaka-radius/internal/provapi"
 )
+
+const (
+	ownerID = "root"
+	ownerPW = "owner-password-123"
+)
+
+var discard = slog.New(slog.NewTextHandler(io.Discard, nil))
+
+// testEnv は画面のテスト環境。認証は本物の auth.Service をメモリ上のストアで動かす。
+type testEnv struct {
+	h     http.Handler
+	auth  *auth.Service
+	store *authtest.MemStore
+	prov  *fakeProv
+}
 
 func newTestHandler(t *testing.T) http.Handler {
 	t.Helper()
-	h, err := New(Options{Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Version: "test"})
+	return newTestEnv(t, newFakeProv()).h
+}
+
+func newTestEnv(t *testing.T, prov *fakeProv) *testEnv {
+	t.Helper()
+	return newTestEnvLog(t, prov, discard)
+}
+
+func newTestEnvLog(t *testing.T, prov *fakeProv, log *slog.Logger) *testEnv {
+	t.Helper()
+	st := authtest.NewMemStore()
+	svc, err := auth.New(t.Context(), auth.Options{
+		Store: st, Log: discard, InitialAdminID: ownerID, InitialAdminPassword: ownerPW,
+		SessionIdleTimeout: 30 * time.Minute, SessionMaxAge: 12 * time.Hour,
+		MaxLoginFailures: 5, LockDuration: 15 * time.Minute, AuditMaxLen: 1000,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return h.Routes()
+	h, err := New(Options{Log: log, Version: "test", Prov: prov, Auth: svc})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &testEnv{h: h.Routes(), auth: svc, store: st, prov: prov}
+}
+
+// request はリクエストを作る。cookie があれば付ける。form があれば POST のフォームとして送る。
+func request(method, path string, cookie *http.Cookie, form url.Values) *http.Request {
+	var body io.Reader
+	if form != nil {
+		body = strings.NewReader(form.Encode())
+	}
+	r := httptest.NewRequest(method, "https://gui.example"+path, body)
+	if form != nil {
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+	// ブラウザの同一オリジンのリクエストと同じヘッダーを付ける。
+	r.Header.Set("Sec-Fetch-Site", "same-origin")
+	if cookie != nil {
+		r.AddCookie(cookie)
+	}
+	return r
 }
 
 func do(h http.Handler, r *http.Request) *httptest.ResponseRecorder {
@@ -27,14 +87,40 @@ func do(h http.Handler, r *http.Request) *httptest.ResponseRecorder {
 	return w
 }
 
-func TestHome(t *testing.T) {
-	h := newTestHandler(t)
-	w := do(h, httptest.NewRequest("GET", "https://gui.example/", nil))
+// sessionCookieOf は応答で設定されたセッションの Cookie を返す。
+func sessionCookieOf(w *httptest.ResponseRecorder) *http.Cookie {
+	for _, c := range w.Result().Cookies() {
+		if c.Name == sessionCookie {
+			return c
+		}
+	}
+	return nil
+}
+
+// loginAs はログインしてセッションの Cookie を返す。
+func (e *testEnv) loginAs(t *testing.T, id, pw string) *http.Cookie {
+	t.Helper()
+	w := do(e.h, request("POST", "/login", nil, url.Values{"id": {id}, "password": {pw}, "next": {"/"}}))
+	c := sessionCookieOf(w)
+	if w.Code != http.StatusSeeOther || c == nil || c.Value == "" {
+		t.Fatalf("login %s: status %d, cookie %v", id, w.Code, c)
+	}
+	return c
+}
+
+func TestDashboard(t *testing.T) {
+	prov := newFakeProv()
+	prov.status = provapi.Status{Version: "0.2.0", NodeName: "poc-01", StartedAt: time.Now(),
+		SubscriberCount: 12, ClientCount: 3, PolicyCount: 7}
+	env := newTestEnv(t, prov)
+	w := do(env.h, request("GET", "/", env.loginAs(t, ownerID, ownerPW), nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d", w.Code)
 	}
 	body := w.Body.String()
-	for _, want := range []string{"<title>ホーム | EAP-AKA RADIUS 管理</title>", "/static/htmx.min.js", "web-gui-for-eapaka-radius test"} {
+	for _, want := range []string{"<title>ダッシュボード | EAP-AKA RADIUS 管理</title>", "/static/htmx.min.js",
+		"web-gui-for-eapaka-radius test", `<p class="metric">12</p>`, `<p class="metric">3</p>`, `<p class="metric">7</p>`,
+		"<td>poc-01</td>", "<td>0.2.0</td>"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body does not contain %q", want)
 		}
@@ -50,6 +136,39 @@ func TestHome(t *testing.T) {
 	}
 	if got := w.Header().Get("X-Content-Type-Options"); got != "nosniff" {
 		t.Errorf("X-Content-Type-Options = %q", got)
+	}
+}
+
+func TestDashboardProvError(t *testing.T) {
+	for name, tc := range map[string]struct {
+		err  error
+		want string
+	}{
+		"unreachable": {
+			err:  fmt.Errorf("wrap: %w", &net.OpError{Op: "dial", Err: fmt.Errorf("connection refused")}),
+			want: "<p>provisioning-api に接続できません。本PoCの provisioning-api が起動しているか",
+		},
+		"unknown": {
+			err:  fmt.Errorf("something odd"),
+			want: "<p>本PoCの Provisioning API に接続できません。</p>",
+		},
+		"api error": {
+			err:  &provapi.Error{Status: 500, Problem: provapi.Problem{Cause: provapi.CauseSystemFailure}},
+			want: "Provisioning API がエラーを返しました。",
+		},
+	} {
+		prov := newFakeProv()
+		prov.err = tc.err
+		env := newTestEnv(t, prov)
+		w := do(env.h, request("GET", "/", env.loginAs(t, ownerID, ownerPW), nil))
+		// Provisioning API に届かなくても画面自体は返す。
+		if w.Code != http.StatusOK {
+			t.Errorf("%s: status = %d", name, w.Code)
+		}
+		body := w.Body.String()
+		if !strings.Contains(body, tc.want) || strings.Contains(body, `class="metric"`) {
+			t.Errorf("%s: body = %s", name, body)
+		}
 	}
 }
 
@@ -99,7 +218,7 @@ func TestStatic(t *testing.T) {
 func TestCrossOriginProtection(t *testing.T) {
 	h := newTestHandler(t)
 
-	r := httptest.NewRequest("POST", "https://gui.example/", nil)
+	r := httptest.NewRequest("POST", "https://gui.example/login", nil)
 	r.Header.Set("Sec-Fetch-Site", "cross-site")
 	w := do(h, r)
 	if w.Code != http.StatusForbidden {
@@ -119,11 +238,8 @@ func TestCrossOriginProtection(t *testing.T) {
 
 func TestAccessLogTraceID(t *testing.T) {
 	var buf bytes.Buffer
-	h, err := New(Options{Log: slog.New(slog.NewJSONHandler(&buf, nil)), Version: "test"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	do(h.Routes(), httptest.NewRequest("GET", "https://gui.example/?imsi=001010000000001", nil))
+	env := newTestEnvLog(t, newFakeProv(), slog.New(slog.NewJSONHandler(&buf, nil)))
+	do(env.h, request("GET", "/login?next=/subscribers?prefix=001010000000001", nil, nil))
 
 	var entry struct {
 		Msg     string `json:"msg"`
@@ -133,11 +249,21 @@ func TestAccessLogTraceID(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
 		t.Fatalf("%v: %s", err, buf.String())
 	}
-	if entry.Msg != "access" || entry.Path != "/" || !regexp.MustCompile(`^[0-9a-f]{32}$`).MatchString(entry.TraceID) {
+	if entry.Msg != "access" || entry.Path != "/login" || !regexp.MustCompile(`^[0-9a-f]{32}$`).MatchString(entry.TraceID) {
 		t.Errorf("access log = %s", buf.String())
 	}
 	// クエリ文字列は出さない。
 	if strings.Contains(buf.String(), "001010000000001") {
 		t.Errorf("query string is logged: %s", buf.String())
+	}
+}
+
+func TestDatetime(t *testing.T) {
+	f := funcs["datetime"].(func(time.Time) string)
+	if got := f(time.Time{}); got != "-" {
+		t.Errorf("zero = %q", got)
+	}
+	if got := f(time.Date(2026, 10, 3, 15, 4, 5, 0, time.UTC)); !strings.HasPrefix(got, "2026-10-0") {
+		t.Errorf("got %q", got)
 	}
 }

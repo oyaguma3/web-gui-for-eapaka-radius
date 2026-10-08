@@ -1,0 +1,79 @@
+{{define "content" -}}
+<h1>アカウント管理</h1>
+{{template "accounts-section" .Data}}
+{{- end}}
+
+{{/* 操作のたびに htmx でこの部分だけを差し替える。 */}}
+{{define "accounts-section" -}}
+<div id="accounts">
+  {{if .Message}}<p class="notice-ok" role="status">{{.Message}}</p>{{end}}
+  {{if .Error}}<p class="notice-error" role="alert">{{.Error}}</p>{{end}}
+
+  <figure>
+    <table>
+      <thead>
+        <tr><th scope="col">ユーザーID</th><th scope="col">種類</th><th scope="col">作成</th><th scope="col">状態</th><th scope="col">操作</th></tr>
+      </thead>
+      <tbody>
+        {{- range .Accounts}}
+        <tr>
+          <td>{{.ID}}</td>
+          <td>{{.Role.Label}}</td>
+          <td>{{if .IsOwner}}.env{{else}}{{datetime .CreatedAt}}<br><small>{{.CreatedBy}}</small>{{end}}</td>
+          <td>{{if .MustChangePassword}}パスワード変更待ち{{end}}</td>
+          <td>
+            {{- if $.Me.CanManage .Role}}
+            <details>
+              <summary>操作</summary>
+              <form hx-post="/accounts/{{.ID}}/password" hx-target="#accounts" hx-swap="outerHTML">
+                <input type="password" name="password" placeholder="新しいパスワード" autocomplete="new-password" required minlength="{{minPasswordLen}}" aria-label="新しいパスワード">
+                <input type="password" name="confirm" placeholder="新しいパスワード（確認）" autocomplete="new-password" required minlength="{{minPasswordLen}}" aria-label="新しいパスワード（確認）">
+                <button type="submit" class="secondary">パスワードを再設定</button>
+              </form>
+              <button type="button" class="contrast" hx-post="/accounts/{{.ID}}/delete" hx-target="#accounts" hx-swap="outerHTML"
+                hx-confirm="アカウント {{.ID}} を削除します。よろしいですか？">削除</button>
+            </details>
+            {{- end}}
+          </td>
+        </tr>
+        {{- end}}
+      </tbody>
+    </table>
+  </figure>
+
+  {{if .Roles -}}
+  <article>
+    <header><strong>アカウントの作成</strong></header>
+    <form hx-post="/accounts" hx-target="#accounts" hx-swap="outerHTML">
+      <div class="grid">
+        <label>
+          ユーザーID
+          <input name="id" value="{{.Form.ID}}" required maxlength="64" pattern="[A-Za-z0-9._@\-]{1,64}" autocomplete="off">
+          <small>英数字と . _ @ - が使えます（64 文字まで）。</small>
+        </label>
+        <label>
+          種類
+          <select name="role">
+            {{- range .Roles}}
+            <option value="{{.}}"{{if eq . $.Form.Role}} selected{{end}}>{{.Label}}</option>
+            {{- end}}
+          </select>
+        </label>
+      </div>
+      <div class="grid">
+        <label>
+          初期パスワード
+          <input type="password" name="password" autocomplete="new-password" required minlength="{{minPasswordLen}}">
+          <small>{{minPasswordLen}} 文字以上。最初のログインで変更を求めます。</small>
+        </label>
+        <label>
+          初期パスワード（確認）
+          <input type="password" name="confirm" autocomplete="new-password" required minlength="{{minPasswordLen}}">
+        </label>
+      </div>
+      <button type="submit">作成する</button>
+    </form>
+  </article>
+  {{- end}}
+</div>
+{{- end}}
