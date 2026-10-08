@@ -50,8 +50,9 @@ EAP-AKA RADIUS PoC（eapaka-radius-server-poc。以下「本PoC」）の管理 G
 - アカウント・権限・セッションは BFF が持つ（BFF 専用の Valkey）。最初の管理者・管理者・一般ユーザーの 3 種類（aka 版と同じ）。
 - 権限判定は BFF だけで行う。provisioning-api は BFF を全権の管理クライアントとして扱う。
 - 一般ユーザーができないこと: 登録済み加入者の Ki / OPc の閲覧・変更、SQN / AMF の変更、RADIUSクライアントの登録・変更・削除、共有シークレットの閲覧、監査ログの閲覧、アカウント管理。加入者の登録・削除と認可ポリシーの作成・変更・削除はできる。
-- Ki / OPc（`GET /subscribers/{imsi}/keys`）と共有シークレット（`GET /clients/{ip}/secret`）は、詳細画面のボタンを押したときだけ取得して表示する。取得は provisioning-api の監査ログに残る。
+- Ki / OPc（`GET /subscribers/{imsi}/keys`）と共有シークレット（`GET /clients/{clientId}/secret`）は、詳細画面のボタンを押したときだけ取得して表示する。取得は provisioning-api の監査ログに残る。
 - provisioning-api を呼ぶときは、操作者のユーザーID を `X-Operator-Id` ヘッダーで渡す（形式 `^[A-Za-z0-9._@-]{1,64}$`）。変更操作と秘密の値の取得は、操作者がなければ送らない。
+- RADIUSクライアントはサーバー採番の ID で識別する（パス `/clients/{clientId}`、Provisioning API 0.2.0。本PoC D-13 r5）。IP アドレスは PATCH で変えられる項目で、`GET /clients?ip=` で IP から探せる。
 - 認可ポリシーは加入者とは独立に扱う（接続方式01の加入者は `policy:` だけを持つ）。編集画面ではルールの行を HTMX で増減・並べ替えし、PUT で全体を置き換える。
 - ブラウザ向けの HTTPS は BFF 自身で終端する（自己署名の自動生成または持ち込み）。GUI はインターネットに直接公開せず、VPN 越しのアクセスを基本とする。CSRF 対策は `CrossOriginProtection`。
 - 初版の範囲外（Provisioning API の拡張で検討）: provisioning-api の監査ログ・サーバーログの参照、セッション・統計、CSV の一括操作。

@@ -81,7 +81,7 @@ aka 版 §5 と同じ（argon2id、サーバー側セッションと `__Host-` C
 
 加えて、本PoC固有の秘密の値の扱い:
 
-- Ki / OPc と RADIUSクライアントの共有シークレットは、詳細画面のボタンを押したときだけ provisioning-api から取得して表示する（`GET /subscribers/{imsi}/keys`、`GET /clients/{ip}/secret`。取得は provisioning-api の監査ログに残る）。他の操作や画面の移動で表示を消す。
+- Ki / OPc と RADIUSクライアントの共有シークレットは、詳細画面のボタンを押したときだけ provisioning-api から取得して表示する（`GET /subscribers/{imsi}/keys`、`GET /clients/{clientId}/secret`。取得は provisioning-api の監査ログに残る）。他の操作や画面の移動で表示を消す。
 - これらの値は BFF のログに出さない。provisioning-api のリクエスト・レスポンスのボディはログに出さず、アクセスログにはクエリ文字列を出さない。
 
 ## 6. 画面
@@ -93,12 +93,13 @@ aka 版 §5 と同じ（argon2id、サーバー側セッションと `__Host-` C
 | 加入者一覧 | 50 件ずつのページング（`cursor` / `nextCursor`）、IMSI の前方一致検索、総数 | `GET /subscribers` |
 | 加入者登録 | IMSI、Ki、OPc、AMF（既定 8000）、SQN（既定 000000000000） | `POST /subscribers` |
 | 加入者詳細・編集 | AMF / SQN の表示。管理者は Ki / OPc の表示（ボタン）と変更、SQN / AMF の変更（変わった項目だけを送る）。削除。同じ IMSI の認可ポリシーの有無と、ポリシーの画面への移動 | `GET` / `PATCH` / `DELETE /subscribers/{imsi}`、`GET /subscribers/{imsi}/keys`、`GET /policies/{imsi}` |
-| RADIUSクライアント一覧・登録 | 全件（IP アドレスの順）。管理者は登録（IP、共有シークレット、名前、ベンダー） | `GET` / `POST /clients` |
-| RADIUSクライアント詳細・編集 | 名前・ベンダー。管理者は共有シークレットの表示（ボタン）と変更、名前・ベンダーの変更、削除 | `GET` / `PATCH` / `DELETE /clients/{ip}`、`GET /clients/{ip}/secret` |
+| RADIUSクライアント一覧・登録 | 全件（IP アドレスの順）。ID・IP・名前・ベンダーを表示。管理者は登録（IP、共有シークレット、名前、ベンダー。ID はサーバーが採番） | `GET` / `POST /clients` |
+| RADIUSクライアント詳細・編集 | ID・IP・名前・ベンダー。管理者は共有シークレットの表示（ボタン）と変更、IP・名前・ベンダーの変更（IP を変えても ID は変わらない）、削除 | `GET` / `PATCH` / `DELETE /clients/{clientId}`、`GET /clients/{clientId}/secret` |
 | 認可ポリシー一覧 | 50 件ずつのページング、IMSI の前方一致検索、総数。default とルールの件数 | `GET /policies` |
 | 認可ポリシー編集 | default（allow / deny）の切り替え、ルールの追加・削除・並べ替え（上から順に評価）。ルールは NAS-ID、許可する SSID（複数）、VLAN ID、Session-Timeout。保存時に全体を置き換える。新規作成（加入者がなくても作れる）と削除 | `GET` / `PUT` / `DELETE /policies/{imsi}` |
 | 監査ログ | BFF の監査ログ（provisioning-api の監査ログの参照は §10 の拡張後） | - |
 
+- RADIUSクライアントは、サーバー採番の ID（本PoC D-13 r5 / API 0.2.0）で識別し、画面の URL にも ID を使う（例 `/clients/3`）。IP アドレスは変更できる項目として扱う。
 - 認可ポリシーは加入者の下ではなく独立して扱う。接続方式01（aka-only-server）の加入者は鍵を aka-only-server が持つため、本PoCには `sub:{IMSI}` がなく `policy:{IMSI}` だけがある（D-13 §3.3）。
 - 認可ポリシーの編集は本 GUI で新しく作る画面で、ルールの行を HTMX で増やす・減らす・上下に動かす。入力の検証は provisioning-api の `invalidParams`（例 `rules[0].allowedSsids[1]`）を各行の項目に対応付けて表示する。
 - 本PoCの Admin TUI と同時に使った場合の 404 / 409（他の操作で削除された・既に存在する）は、その旨が分かる文で表示し、一覧を読み直せるようにする。
@@ -119,7 +120,7 @@ aka 版 §5 と同じ（argon2id、サーバー側セッションと `__Host-` C
 
 - 操作者のユーザーID はリクエストのコンテキストに入れ、API クライアントが `X-Operator-Id` ヘッダーで渡す。変更操作と秘密の値の取得は、操作者が入っていなければ送らない。
 - 変更は JSON Merge Patch（`application/merge-patch+json`）で、変わった項目だけを送る。認可ポリシーは PUT で全体を置き換える。
-- ProblemDetails の `cause` / `invalidParams` を、HTTP のステータスと日本語の文・項目名に対応付けて表示する（aka 版の対応表に `CLIENT_NOT_FOUND`、`POLICY_NOT_FOUND`、`CLIENT_ALREADY_EXISTS` を加える）。
+- ProblemDetails の `cause` / `invalidParams` を、HTTP のステータスと日本語の文・項目名に対応付けて表示する（aka 版の対応表に `CLIENT_NOT_FOUND`、`POLICY_NOT_FOUND`、`CLIENT_ALREADY_EXISTS`（RADIUSクライアントの登録と IP の変更で、同じ IP が既にある）を加える）。
 - 16 進は provisioning-api が小文字で返すので、そのまま表示する。日時は BFF のタイムゾーン（`TZ`）で表示する。
 
 ### 7.3 配置と経路
