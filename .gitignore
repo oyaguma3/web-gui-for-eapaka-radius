@@ -1,0 +1,10 @@
+# 検証用の環境の情報などを含むので公開しない
+CLAUDE.md
+
+# ローカルのパスを含むので共有しない
+.claude/settings.json
+.env
+*.pem
+*.key
+/eapaka-webgui
+/certs/
