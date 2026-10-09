@@ -44,6 +44,17 @@ type ListParams struct {
 	Limit int
 }
 
+// Values は一覧のクエリ文字列の値を返す（provisioner の加入者の一覧も同じ引数を使う）。
+func (p ListParams) Values() url.Values { return p.query() }
+
+// Values は監査ログのクエリ文字列の値を返す（provisioner の監査ログも同じ引数を使う）。
+func (p AuditLogParams) Values() url.Values {
+	q := url.Values{}
+	setString(q, "before", p.Before)
+	setInt(q, "limit", int64(p.Limit))
+	return q
+}
+
 func (p ListParams) query() url.Values {
 	q := url.Values{}
 	setString(q, "prefix", p.Prefix)
@@ -337,10 +348,7 @@ type AuditLogList struct {
 
 // ListAuditLogs は provisioning-api の監査ログを新しい順に取得する。
 func (c *Client) ListAuditLogs(ctx context.Context, p AuditLogParams) (AuditLogList, error) {
-	q := url.Values{}
-	setString(q, "before", p.Before)
-	setInt(q, "limit", int64(p.Limit))
-	return c.call[AuditLogList](ctx, request{method: http.MethodGet, path: []string{"audit-logs"}, query: q})
+	return c.call[AuditLogList](ctx, request{method: http.MethodGet, path: []string{"audit-logs"}, query: p.Values()})
 }
 
 // ---- セッション ----

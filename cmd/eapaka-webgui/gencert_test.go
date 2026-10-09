@@ -24,9 +24,12 @@ func TestGenClientCertStdout(t *testing.T) {
 	if cert.Leaf.Subject.CommonName != "bff-01" {
 		t.Errorf("CN = %q", cert.Leaf.Subject.CommonName)
 	}
-	want := "PROVISIONING_API_ADMIN_CLIENTS=bff-01=" + certs.Fingerprint(cert.Leaf) + "\n"
-	if !strings.Contains(stderr.String(), want) {
-		t.Errorf("stderr = %q, want %q", stderr.String(), want)
+	// 直接つなぐ場合（本PoC）と provisioner 経由の場合の、両方の .env に書く行を出す。
+	for _, v := range []string{"PROVISIONING_API_ADMIN_CLIENTS", "PROVISIONER_ADMIN_CLIENTS"} {
+		want := "\n" + v + "=bff-01=" + certs.Fingerprint(cert.Leaf) + "\n"
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("stderr = %q, want %q", stderr.String(), want)
+		}
 	}
 }
 

@@ -14,14 +14,15 @@ import (
 	"github.com/oyaguma3/web-gui-for-eapaka-radius/internal/certs"
 )
 
-// clientNamePattern は provisioning-api の PROVISIONING_API_ADMIN_CLIENTS の識別名の形式。
+// clientNamePattern は provisioning-api の PROVISIONING_API_ADMIN_CLIENTS（provisioner の PROVISIONER_ADMIN_CLIENTS も同じ）の識別名の形式。
 var clientNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
 const genClientCertUsage = `usage: eapaka-webgui gen-client-cert -name <識別名> [-days 825] [-out-cert <file>] [-out-key <file>]
 
-Provisioning API に提示するクライアント証明書（自己署名、ECDSA P-256）と秘密鍵を作る。
+接続先（本PoCの Provisioning API、または eapaka-node-provisioner）に提示するクライアント証明書
+（自己署名、ECDSA P-256）と秘密鍵を作る。
 出力先を省略すると、証明書と秘密鍵を続けて標準出力に出す（1 つの PEM ファイルとして使える）。
-フィンガープリントと、本PoCの .env の PROVISIONING_API_ADMIN_CLIENTS に書く値を標準エラーに出す。
+フィンガープリントと、接続先の .env に書く値（PROVISIONING_API_ADMIN_CLIENTS、PROVISIONER_ADMIN_CLIENTS）を標準エラーに出す。
 
 options:
 `
@@ -35,7 +36,7 @@ func genClientCert(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprint(stderr, genClientCertUsage)
 		fs.PrintDefaults()
 	}
-	name := fs.String("name", "", "証明書の CommonName。provisioning-api の監査ログの mgmt_client になる識別名と同じにする（英数字と . _ - の 64 文字まで）")
+	name := fs.String("name", "", "証明書の CommonName。接続先の監査ログの管理クライアント（mgmt_client）になる識別名と同じにする（英数字と . _ - の 64 文字まで）")
 	days := fs.Int("days", 825, "有効日数")
 	outCert := fs.String("out-cert", "", "証明書の出力先（省略時は標準出力）")
 	outKey := fs.String("out-key", "", "秘密鍵の出力先（省略時は標準出力。ファイルはパーミッション 600 で作る）")
@@ -73,8 +74,11 @@ func genClientCert(args []string, stdout, stderr io.Writer) error {
 	fp := certs.Fingerprint(leaf)
 	fmt.Fprintf(stderr, "クライアント証明書を作りました（CN=%s、有効期限 %s）。\n", *name, leaf.NotAfter.Local().Format(time.DateOnly))
 	fmt.Fprintf(stderr, "SHA-256 フィンガープリント: %s\n", fp)
-	fmt.Fprintln(stderr, "本PoCの .env の PROVISIONING_API_ADMIN_CLIENTS に次の値を登録してください（他の登録があればカンマ区切りで加える）:")
+	fmt.Fprintln(stderr, "接続先の .env に次の値を登録してください（他の登録があればカンマ区切りで加える）:")
+	fmt.Fprintln(stderr, "  本PoCの Provisioning API に直接つなぐ場合（本PoCの .env）:")
 	fmt.Fprintf(stderr, "PROVISIONING_API_ADMIN_CLIENTS=%s=%s\n", *name, fp)
+	fmt.Fprintln(stderr, "  eapaka-node-provisioner 経由でつなぐ場合（provisioner の .env）:")
+	fmt.Fprintf(stderr, "PROVISIONER_ADMIN_CLIENTS=%s=%s\n", *name, fp)
 	return nil
 }
 

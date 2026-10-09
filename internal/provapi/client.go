@@ -9,6 +9,10 @@
 // リクエストを送らない。
 //
 // トレースID（internal/trace）がコンテキストに入っていれば X-Trace-ID ヘッダーで渡す。入っていなければ呼び出しごとに採番する。
+//
+// eapaka-node-provisioner（以下「provisioner」）は、RADIUSクライアント・認可ポリシー・セッション・鍵の取得を
+// Provisioning API と同じ形で中継する。接続先を provisioner にした Client で、それらのメソッドをそのまま使える。
+// provisioner だけの部分は internal/pvapi が Call で呼ぶ。
 package provapi
 
 import (
@@ -35,9 +39,12 @@ import (
 const (
 	defaultTimeout = 10 * time.Second
 	// maxResponseBytes は応答ボディを読む上限。一覧の最大（500 件）でも収まる大きさにする。
-	maxResponseBytes = 16 << 20
-	operatorHeader   = "X-Operator-Id"
-	traceHeader      = "X-Trace-ID"
+	maxResponseBytes     = 16 << 20
+	operatorHeader       = "X-Operator-Id"
+	traceHeader          = "X-Trace-ID"
+	idempotencyKeyHeader = "Idempotency-Key"
+	// defaultName はログとエラーに出す API の名前の既定。
+	defaultName = "provisioning api"
 )
 
 // operatorPattern は X-Operator-Id の形式。provisioning-api 側の検証と同じ。
@@ -63,7 +70,9 @@ type Options struct {
 	ServerCertFile string
 	// Timeout は 1 回の呼び出しの上限時間。0 なら 10 秒。
 	Timeout time.Duration
-	Log     *slog.Logger
+	// Name はログとエラーに出す API の名前（例: provisioner）。空なら "provisioning api"。
+	Name string
+	Log  *slog.Logger
 }
 
 // Client は Provisioning API のクライアント。
@@ -71,6 +80,7 @@ type Client struct {
 	base *url.URL
 	hc   *http.Client
 	log  *slog.Logger
+	name string
 	// clientCert は提示するクライアント証明書。フィンガープリントの表示に使う。
 	clientCert *x509.Certificate
 }
@@ -114,6 +124,7 @@ func New(opts Options) (*Client, error) {
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 		log:        opts.Log,
+		name:       cmp.Or(opts.Name, defaultName),
 		clientCert: cert.Leaf,
 	}, nil
 }
@@ -164,17 +175,32 @@ type InvalidParam struct {
 }
 
 // Problem は Provisioning API のエラー応答（ProblemDetails）。
+// Downstream 以降は provisioner の拡張項目（provisioning-api は返さない）。
 type Problem struct {
 	Title         string         `json:"title,omitempty"`
 	Status        int            `json:"status,omitzero"`
 	Detail        string         `json:"detail,omitempty"`
 	Cause         string         `json:"cause,omitempty"`
 	InvalidParams []InvalidParam `json:"invalidParams,omitempty"`
+
+	// Downstream はエラーの元の下流（prov / aka）。
+	Downstream string `json:"downstream,omitempty"`
+	// DownstreamStatus と DownstreamCause は下流の HTTP ステータスと cause。
+	DownstreamStatus int    `json:"downstreamStatus,omitzero"`
+	DownstreamCause  string `json:"downstreamCause,omitempty"`
+	// OperationID は操作の記録の ID（書き込みの途中の失敗、または同じ IMSI の未完了の操作）。
+	OperationID string `json:"operationId,omitempty"`
+	// RolledBack は、補償で元に戻したか（OperationID がある場合だけ）。
+	RolledBack *bool `json:"rolledBack,omitempty"`
+	// Conflicts は、SUBSCRIBER_ALREADY_EXISTS で同じ IMSI のものがあった場所（poc / aka / policy）。
+	Conflicts []string `json:"conflicts,omitempty"`
 }
 
 // Error は Provisioning API がエラーを返したことを表す。
 // 応答が ProblemDetails でなかった場合、Problem は空になる。
 type Error struct {
+	// API は API の名前（Options.Name）。
+	API    string
 	Method string
 	Path   string
 	Status int
@@ -184,7 +210,7 @@ type Error struct {
 }
 
 func (e *Error) Error() string {
-	msg := fmt.Sprintf("provisioning api %s %s: %d %s", e.Method, e.Path, e.Status, http.StatusText(e.Status))
+	msg := fmt.Sprintf("%s %s %s: %d %s", cmp.Or(e.API, defaultName), e.Method, e.Path, e.Status, http.StatusText(e.Status))
 	if e.Problem.Cause != "" {
 		msg += " (" + e.Problem.Cause + ")"
 	}
@@ -225,6 +251,31 @@ type request struct {
 	contentType string
 	// needOperator が true なら、コンテキストに操作者が入っていなければ送らない。
 	needOperator bool
+	// idempotencyKey は Idempotency-Key ヘッダーの値（provisioner だけが使う）。空なら付けない。
+	idempotencyKey string
+}
+
+// Request は Call に渡す 1 回の呼び出しの内容。
+type Request struct {
+	Method string
+	// Path は BaseURL からの相対パスの要素。
+	Path  []string
+	Query url.Values
+	// Body は JSON にして送る値。nil なら送らない。
+	Body any
+	// ContentType は Body の Content-Type。空なら application/json。
+	ContentType string
+	// NeedOperator が true なら、コンテキストに操作者が入っていなければ送らない（ErrNoOperator）。
+	NeedOperator bool
+	// IdempotencyKey は Idempotency-Key ヘッダーの値。空なら付けない。
+	IdempotencyKey string
+}
+
+// Call は API を呼び出し、2xx の応答ボディを T として読む。T が struct{} ならボディは読まない。
+// 2xx 以外の応答は *Error を返す。このパッケージにない操作（provisioner だけの API）を呼ぶのに使う。
+func (c *Client) Call[T any](ctx context.Context, r Request) (T, error) {
+	return c.call[T](ctx, request{method: r.Method, path: r.Path, query: r.Query, body: r.Body,
+		contentType: r.ContentType, needOperator: r.NeedOperator, idempotencyKey: r.IdempotencyKey})
 }
 
 // call は Provisioning API を呼び出し、2xx の応答ボディを T として読む。T が struct{} ならボディは読まない。
@@ -240,7 +291,7 @@ func (c *Client) call[T any](ctx context.Context, req request) (T, error) {
 		return out, nil
 	}
 	if err := json.UnmarshalRead(io.LimitReader(resp.Body, maxResponseBytes), &out); err != nil {
-		return out, fmt.Errorf("provisioning api %s %s: decode response: %w", req.method, resp.Request.URL.Path, err)
+		return out, fmt.Errorf("%s %s %s: decode response: %w", c.name, req.method, resp.Request.URL.Path, err)
 	}
 	return out, nil
 }
@@ -263,7 +314,7 @@ func (c *Client) send(ctx context.Context, req request) (*http.Response, error) 
 	if req.body != nil {
 		b, err := json.Marshal(req.body)
 		if err != nil {
-			return nil, fmt.Errorf("provisioning api %s %s: encode request: %w", req.method, u.Path, err)
+			return nil, fmt.Errorf("%s %s %s: encode request: %w", c.name, req.method, u.Path, err)
 		}
 		body = bytes.NewReader(b)
 	}
@@ -279,25 +330,28 @@ func (c *Client) send(ctx context.Context, req request) (*http.Response, error) 
 		hreq.Header.Set(operatorHeader, op)
 	}
 	hreq.Header.Set(traceHeader, traceID)
+	if req.idempotencyKey != "" {
+		hreq.Header.Set(idempotencyKeyHeader, req.idempotencyKey)
+	}
 
 	start := time.Now()
 	resp, err := c.hc.Do(hreq)
 	if err != nil {
-		c.log.Warn("provisioning api call failed", "method", req.method, "path", u.Path,
+		c.log.Warn("provisioning api call failed", "api", c.name, "method", req.method, "path", u.Path,
 			"trace_id", traceID, "error", err)
-		return nil, fmt.Errorf("provisioning api %s %s: %w", req.method, u.Path, err)
+		return nil, fmt.Errorf("%s %s %s: %w", c.name, req.method, u.Path, err)
 	}
 	// provisioning-api は使ったトレースID を応答で返す（送った値と同じになるはず）。
 	traceID = cmp.Or(resp.Header.Get(traceHeader), traceID)
 	// リクエストとレスポンスのボディ、クエリ文字列は出さない（Ki / OPc や検索条件を含みうるため）。
-	c.log.Debug("provisioning api call", "method", req.method, "path", u.Path, "status", resp.StatusCode,
+	c.log.Debug("provisioning api call", "api", c.name, "method", req.method, "path", u.Path, "status", resp.StatusCode,
 		"duration_ms", time.Since(start).Milliseconds(), "operator", op, "trace_id", traceID)
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return resp, nil
 	}
 	defer drainClose(resp.Body)
-	apiErr := &Error{Method: req.method, Path: u.Path, Status: resp.StatusCode, TraceID: traceID}
+	apiErr := &Error{API: c.name, Method: req.method, Path: u.Path, Status: resp.StatusCode, TraceID: traceID}
 	if mt, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type")); mt == "application/problem+json" {
 		// 読めなくても、ステータスコードだけで扱えるようにする。
 		_ = json.UnmarshalRead(io.LimitReader(resp.Body, maxResponseBytes), &apiErr.Problem)

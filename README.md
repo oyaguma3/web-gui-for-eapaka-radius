@@ -82,6 +82,12 @@ EAPAKA_WEBGUI_TEST_ADMIN_URL=https://<host>:9444/admin/v1 EAPAKA_WEBGUI_TEST_ADM
 
 契約テストは、テスト用の加入者・認可ポリシー（IMSI が `00101` で始まるもの）と RADIUSクライアント（`198.51.100.0/24` のアドレス）を作り、終わったら削除します。`EAPAKA_WEBGUI_TEST_ADMIN_LOG` に provisioning-api の標準出力を書いたファイルを指定すると、監査ログの操作者・管理クライアント・トレースID も確かめます。
 
+eapaka-node-provisioner を相手にした契約テストも、接続先を指定したときだけ動きます。provisioner の PLMN マップで `00102` を `01`（aka-only-server）にしておくと、aka-only-server に鍵を置く加入者も確かめます。
+
+```bash
+EAPAKA_WEBGUI_TEST_PROVISIONER_URL=https://<host>:9446/admin/v1 EAPAKA_WEBGUI_TEST_PROVISIONER_CLIENT_CERT=<bff.pem> EAPAKA_WEBGUI_TEST_PROVISIONER_SERVER_CERT=<provisioner の server-cert の出力> go test -run Integration ./internal/pvapi/
+```
+
 GitHub Actions（`.github/workflows/ci.yml`）で、push と pull request のたびに次を実行します。
 
 | ジョブ | 内容 |
@@ -89,6 +95,7 @@ GitHub Actions（`.github/workflows/ci.yml`）で、push と pull request のた
 | テスト | gofmt の確認、`go vet`、race 検出つきのテスト（Valkey の結合テストを含む） |
 | イメージと compose の設定 | Docker イメージのビルド、compose の設定の検査（同一ホスト・別ホスト） |
 | Provisioning API との契約テスト | 本PoCを固定のコミット（ci.yml の `POC_REF`）で取得して provisioning-api をビルド・起動し、`gen-client-cert` で作った証明書を登録して契約テストを実行する |
+| eapaka-node-provisioner との契約テスト | provisioner と、その下流（本PoCの provisioning-api、aka-only-server）を固定のコミット（`PROVISIONER_REF` / `POC_REF` / `AKA_REF`）で取得してビルド・起動し、provisioner を相手に契約テストを実行する |
 
 同梱しているサードパーティのファイル:
 

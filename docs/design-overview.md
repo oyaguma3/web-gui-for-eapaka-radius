@@ -1,6 +1,6 @@
 # web-gui-for-eapaka-radius 設計概要
 
-- 状態: 初版（2026-10-08。§9 のステップ 1〜5）と、§10 の 2（本PoCの Provisioning API 0.3.0 の監査ログ・セッションの参照。2026-10-09）を実装済み。次は §10 の 3（eapaka-node-provisioner の設計）
+- 状態: 初版（2026-10-08。§9 のステップ 1〜5）と、§10 の 2（本PoCの Provisioning API 0.3.0 の監査ログ・セッションの参照。2026-10-09）を実装済み。§10 の 3（eapaka-node-provisioner）は設計・実装済み（同リポジトリ）。§10 の 4（eapaka-node-provisioner 経由の接続。§12）を設計中（確認事項あり）
 - 対象: BFF と Web GUI（コマンド名 `eapaka-webgui`）。
 - 関連:
   - 管理対象のシステムと Provisioning API: eapaka-radius-server-poc リポジトリの `docs/D-13_Provisioning_API詳細設計書_r*.md`、`docs/openapi/provisioning-api.yaml`
@@ -20,6 +20,7 @@ EAP-AKA RADIUS PoC（eapaka-radius-server-poc。以下「本PoC」）の管理 G
 - BFF は Go で実装し、HTML を返す（HTMX + Pico CSS）。ログインアカウント、権限、セッションはこちらで持つ。
 - 1つの BFF が扱うのは本PoCの1ノード（provisioning-api 1つ）とする。複数ノードや aka-only-server をあわせて扱うのは、将来の統合API（仮称 eapaka-node-provisioner、別リポジトリ）の役目とする（§10）。
 - Provisioning API の呼び出しはインターフェースの後ろに隠し、将来 eapaka-node-provisioner に付け替えやすくしておく。
+- 接続先は、provisioning-api に直接（既定）と、eapaka-node-provisioner 経由のどちらかを設定で選ぶ（2026-10-10 決定。§12）。provisioner は必須にしない。
 - 本PoCの Admin TUI とは、原則として同時に使わない（D-13 §2.3）。
 
 ## 2. 技術方針
@@ -187,7 +188,8 @@ aka 版と同じく 5 つのステップに分け、各ステップの終わり�
 |---|---|
 | 1 | 本 GUI（eapaka-webgui）の初版（§9） |
 | 2 | 本PoCの Provisioning API の拡張（D-13 §10 の候補）と、本 GUI への反映。eapaka-node-provisioner の設計の前に、Provisioning API の作法を確立しておく。**実装済み（2026-10-09）**: 監査ログの参照（`GET /audit-logs`）、セッションの参照（`GET /sessions`、`/status` の `sessionCount`）。Provisioning API 0.3.0（本PoC D-13 r6） |
-| 3 | eapaka-node-provisioner（本PoCの Provisioning API と aka-only-server の管理API を組み合わせて操作する統合API）の設計 |
+| 3 | eapaka-node-provisioner（本PoCの Provisioning API と aka-only-server の管理API を組み合わせて操作する統合API）の設計。**実装済み（2026-10-10）**: eapaka-node-provisioner リポジトリ（API 0.2.0） |
+| 4 | 本 GUI から eapaka-node-provisioner 経由でも操作できるようにする（§12） |
 
 2 で扱わなかったもの（2026-10-09 決定）:
 
@@ -202,3 +204,71 @@ aka 版と同じく 5 つのステップに分け、各ステップの終わり�
 | `docs/design-overview.md` | 本書 |
 | `docs/screen-spec.md` | 画面仕様と権限ごとの表示差 |
 | `docs/operation-guide.md` | 導入（BFF の登録を含む）、アカウント運用、ブラウザ向け HTTPS、公開範囲、バックアップ、障害時の確認、環境変数（手順は検証機で実行して確かめたもの） |
+
+## 12. eapaka-node-provisioner 経由の接続（設計中）
+
+### 12.1 方針（2026-10-10 決定）
+
+- 接続先を設定で選べるようにする。既定は今までどおり provisioning-api に直接。eapaka-node-provisioner（以下「provisioner」）経由を選んだときだけ provisioner が必要になる（provisioner を必須にする「置き換え」はしない）。
+- provisioner 経由では、鍵の置き場所（本PoC / aka-only-server）の違う加入者を同じ画面で扱い、加入者の作成・削除で認可ポリシーも一緒に扱う。2 つのノードの食い違い（`issues`）と、操作の記録（`/operations`）を画面に出す。
+- 1 つの BFF が扱うのは、引き続き 1 つの接続先（provisioning-api 1 つ、または provisioner 1 つ）とする。
+
+```
+直接（既定）:      BFF ──mTLS──> provisioning-api（本PoC）
+provisioner 経由:  BFF ──mTLS──> provisioner ──> provisioning-api（本PoC）
+                                              └─> aka-only-server の管理API
+```
+
+### 12.2 provisioner の API と今の BFF の違い
+
+provisioner の API（provisioner の `docs/openapi/provisioner-api.yaml` 0.2.0）は、中継する部分を provisioning-api と同じ形にしてある。
+
+| 部分 | provisioner の API | BFF の扱い |
+|---|---|---|
+| RADIUSクライアント（`/clients`）、認可ポリシー（`/policies`）、セッション（`/sessions`） | provisioning-api と同じ形で中継 | 今の API クライアント（`internal/provapi`）を、接続先を provisioner にしてそのまま使う |
+| 鍵の取得（`/subscribers/{imsi}/keys`） | 同じ形（`ki`、`opc`） | 同上 |
+| 加入者（`/subscribers`） | 統合リソース（`keyStore`、`key`、`policy`、`issues`）。作成はポリシーが必須、削除はポリシーも消す。一覧に総数がない | provisioner 用のクライアントと画面の分岐を加える |
+| 状態（`/status`） | 下流 2 つへの接続、PLMN マップ、AVクライアント、未完了の操作の件数 | ダッシュボードを分岐する |
+| 監査ログ | provisioner 自身（`/audit-logs`）、provisioning-api（`/prov/audit-logs`）、aka-only-server（`/aka/audit-logs`） | 監査ログのタブを分岐する |
+| 操作の記録（`/operations`） | 一覧、取得、`retry`、`dismiss` | 新しい画面 |
+| エラー | `OPERATION_IN_PROGRESS`、`OPERATION_UNRESOLVED`、`OPERATION_INCOMPLETE`、`DOWNSTREAM_UNAVAILABLE`、`DOWNSTREAM_ERROR`、`KEY_STORE_MISMATCH` などが増える | 日本語の文の対応表に加える |
+
+### 12.3 確認事項
+
+| # | 事項 | 推奨案 |
+|---|---|---|
+| 1 | 接続先の選び方 | 環境変数 `EAPAKA_WEBGUI_ADMIN_API`（`provisioning-api`（既定）/ `provisioner`）で選ぶ。接続先の URL・証明書は今の変数（`EAPAKA_WEBGUI_ADMIN_URL` 等）を共用する。起動時と `check-admin` で `/status` の形を見て、設定と違う相手（provisioner の設定なのに provisioning-api につながった等）なら、その旨を出す |
+| 2 | 加入者の登録フォーム（provisioner 経由では認可ポリシーが必須） | フォームに認可ポリシーの既定の動作（allow / deny。既定は deny、ルールなし）だけを加える。ルールは登録後に認可ポリシーの画面で編集する（登録後の画面にリンクを出す）。allow を選んだときは、ポリシーの画面と同じく確認ダイアログで警告する |
+| 3 | 鍵の置き場所と aka-only-server の加入者の項目 | 置き場所は provisioner が PLMN マップで決める（フォームでは選ばせない）。登録フォームには、ダッシュボードと同じ PLMN マップを表示する。aka-only-server だけの項目（SQN の増加タイプ、平文HTTP の許可）は登録では指定せず aka-only-server の既定（`inc32`、許可しない）にし、詳細画面で管理者が変えられるようにする（SQN / AMF と同じ扱い）。許可するクライアントID は表示だけ |
+| 4 | 加入者の詳細・一覧の表示 | 詳細に置き場所、鍵の属性（aka-only-server ならその項目も）、認可ポリシーの概要（default とルールの件数。編集はポリシーの画面）、`issues`（日本語の説明と対処）を出す。一覧に置き場所と `issues` の列を加え、総数は出さない（provisioner が返さない） |
+| 5 | 加入者の削除 | provisioner は認可ポリシーも消すので、確認ダイアログの文を変え、削除後の「ポリシーが残っています」の案内は出さない。権限は今と同じ（一般ユーザーも削除できる） |
+| 6 | 操作の記録の画面 | 「操作の記録」の画面を加える（未完了の一覧、詳細の手順ごとの状態とエラー）。閲覧は全員、`retry` と `dismiss` は管理者だけ（下流の状態を確かめて判断するため）。ダッシュボードに未完了の件数とリンクを出す。500 `OPERATION_INCOMPLETE` と 409 `OPERATION_UNRESOLVED` のエラーの表示に、その操作へのリンクを付ける |
+| 7 | ダッシュボード | provisioner の版と起動日時、下流 2 つの接続の状態（版、ノード名、加入者数、接続できない場合は原因の見当）、vector-gateway の AVクライアント、PLMN マップ、未完了の操作の件数を出す。RADIUSクライアント・認可ポリシー・セッションの件数は provisioner の `/status` にないので出さない |
+| 8 | 監査ログのタブ | 「BFF」「provisioner」「provisioning-api」「aka-only-server」の 4 つにする（aka-only-server を使わない設定なら 3 つ）。aka-only-server の監査ログの内容（`detail` のオブジェクト）は「項目: 変更前 → 変更後」の形で表示する |
+| 9 | 呼び出しのタイムアウト | provisioner 経由のときは 1 回の呼び出しの上限を 60 秒にする（provisioner の加入者の作成は、補償を含めて下流を最大 5 回呼ぶ。provisioner のロックの有効期限と同じ）。直接のときは今の 10 秒のまま |
+| 10 | 二重送信（`Idempotency-Key`） | provisioner 経由のとき、加入者の登録・変更・削除のフォームに、表示のたびに作る乱数のキーを隠し項目で持たせ、`Idempotency-Key` として送る。応答を待たずに送り直した・タイムアウトの後に送り直した場合でも、二重に処理されない（最初の結果が返る） |
+| 11 | クライアント証明書と導入 | `gen-client-cert` の標準エラーに、`PROVISIONER_ADMIN_CLIENTS=` の行も出す。同一ホストの provisioner には、provisioner が作る共有ネットワーク（既定名 `eapaka-provisioner`）に参加して `https://eapaka-provisioner:9446/admin/v1` で接続する。そのための compose ファイル（`compose.eapaka-provisioner.yaml`。変数 `PROVISIONER_SHARED_NETWORK`）を加え、`COMPOSE_FILE` で選ぶ |
+| 12 | 契約テストと CI | provisioner を相手にした契約テストを加え、CI でも、provisioner・本PoCの provisioning-api・aka-only-server を固定のコミット（`PROVISIONER_REF` / `POC_REF` / `AKA_REF`）でビルド・起動して実行する（provisioner の CI と同じ作り） |
+| 13 | BFF の監査ログ | provisioner 経由の操作も今と同じく記録する。加入者の操作の内容に置き場所と操作の記録の ID を加え、`retry` / `dismiss` も記録する |
+
+確認事項は 2026-10-10 にすべて推奨案で合意した。
+
+### 12.4 進め方
+
+1. 設定、provisioner 用の API クライアント（加入者・状態・操作の記録・監査ログ）、`check-admin` と `gen-client-cert` の対応、契約テストと CI … 実装済み（2026-10-10。§12.5）
+2. 画面（ダッシュボード、加入者、操作の記録、監査ログのタブ、エラーの文）
+3. compose・運用ガイド・README・画面仕様、simwifi での通しの確認（BFF → provisioner → 本PoC と aka-only-server、eapaka_test での認証）
+
+### 12.5 実装の作り（ステップ 1）
+
+- 設定: `EAPAKA_WEBGUI_ADMIN_API`（`provisioning-api` / `provisioner`）。`EAPAKA_WEBGUI_ADMIN_URL` が空なら、種類ごとの同一ホストの既定（`https://provisioning-api:9444/admin/v1` / `https://eapaka-provisioner:9446/admin/v1`）を使う。1 回の呼び出しの上限は provisioning-api が 10 秒、provisioner が 60 秒。compose は URL の既定を持たず、設定に任せる。
+- API クライアント:
+  - `internal/provapi` はそのまま provisioner にも使う（接続先を provisioner にした `provapi.Client`）。provisioner が中継する RADIUSクライアント・認可ポリシー・セッション・鍵の取得は、このクライアントのメソッドで呼ぶ。加えたもの: ログとエラーに出す API の名前（`Options.Name`）、`Idempotency-Key`、ほかのパッケージから任意の呼び出しを行う `Call`（`Request`）、ProblemDetails の provisioner の拡張項目（`downstream`、`operationId`、`rolledBack`、`conflicts` 等）。応答の未知の項目は無視して読む（`encoding/json/v2` の既定）。
+  - `internal/pvapi` は provisioner だけの部分（状態、加入者の統合操作、操作の記録、3 種類の監査ログ）を、`provapi.Client.Call` で呼ぶ。接続できないときの原因の見当（`pvapi.Diagnose`）は、provapi と同じ判定で、文面を provisioner 向けにした。
+  - `internal/provapi/provapitest` は、テスト用の mTLS のサーバーとクライアント（`pvapi` の単体テストが使う）。
+- 接続先の取り違えの検出: 直接のときは `/status` の形（provisioner には `downstreams`、provisioning-api には `nodeName` がある）で見分ける。provisioner 経由のときは、provisioner の `/status` が下流の確認で時間がかかることがある（下流が止まっていると下流ごとの上限まで）ため、`/status` を 1 回だけ呼び、`downstreams.prov.configured` が偽なら provisioner でないとみなす。
+- `check-admin`: provisioner 経由のときは、provisioner の版、下流 2 つへの接続（接続できなければ provisioner が返す原因の見当）、vector-gateway の AVクライアント、PLMN マップ、未完了の操作の件数を表示する。provisioner に接続できない・取り違えはエラー（終了コード 1）、provisioner の先の下流に接続できないことは表示だけにする（provisioner の `check-downstream` で確かめる）。
+- `gen-client-cert`: 標準エラーに `PROVISIONING_API_ADMIN_CLIENTS=` と `PROVISIONER_ADMIN_CLIENTS=` の両方の行を出す。
+- 契約テスト（`internal/pvapi/integration_test.go`）: `EAPAKA_WEBGUI_TEST_PROVISIONER_URL` / `_CLIENT_CERT` / `_SERVER_CERT` を指定したときだけ動く。本PoCに鍵を置く加入者（`00101...`）の作成・`Idempotency-Key` の再送・重複の 409（`conflicts`）・取得・一覧・変更・鍵の取得（中継）・削除（ポリシーも消える）、provisioner と provisioning-api の監査ログのトレースID、aka-only-server に鍵を置く加入者（`00102...`。provisioner の PLMN マップで `01` にしたときだけ）の作成・変更・削除と aka-only-server の監査ログ、操作の記録（ないものは 404）、中継（RADIUSクライアント・認可ポリシー・セッション）を確かめる。CI のジョブ「eapaka-node-provisioner との契約テスト」で、provisioner・provisioning-api・aka-only-server を固定のコミットでビルド・起動して実行する。
+- この時点では画面は provisioner に対応していない（provisioner 経由の設定で起動すると、加入者・ダッシュボード・監査ログの画面は正しく動かない）。画面はステップ 2 で対応する。
+

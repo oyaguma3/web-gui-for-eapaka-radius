@@ -23,14 +23,18 @@ type Config struct {
 	// TLSHosts は、自己署名のサーバー証明書を生成するときに SAN へ入れるホスト名と IP アドレス。
 	TLSHosts []string
 
-	// AdminURL は本PoCの Provisioning API（provisioning-api）のベース URL。
+	// AdminAPI は接続先の種類（provisioning-api に直接、または eapaka-node-provisioner 経由）。
+	AdminAPI AdminAPI
+	// AdminURL は接続先（provisioning-api または provisioner）のベース URL。
 	AdminURL string
 	// AdminClientCertFile は Provisioning API に提示するクライアント証明書（PEM）のパス。
 	AdminClientCertFile string
 	// AdminClientKeyFile はクライアント証明書の秘密鍵（PEM）のパス。空なら AdminClientCertFile から読む。
 	AdminClientKeyFile string
-	// AdminServerCertFile は provisioning-api のサーバー証明書（PEM）のパス。これを信頼する証明書として検証する。
+	// AdminServerCertFile は接続先のサーバー証明書（PEM）のパス。これを信頼する証明書として検証する。
 	AdminServerCertFile string
+	// AdminTimeout は接続先の 1 回の呼び出しの上限時間（provisioning-api は 10 秒、provisioner は 60 秒）。
+	AdminTimeout time.Duration
 
 	// ValkeyAddr は BFF 専用の Valkey の接続先（host:port）。
 	ValkeyAddr string
@@ -56,6 +60,27 @@ type Config struct {
 	LogLevel slog.Level
 }
 
+// AdminAPI は接続先の種類。
+type AdminAPI string
+
+const (
+	// AdminAPIProvisioningAPI は本PoCの Provisioning API（provisioning-api）に直接つなぐ（既定）。
+	AdminAPIProvisioningAPI AdminAPI = "provisioning-api"
+	// AdminAPIProvisioner は eapaka-node-provisioner 経由でつなぐ（本PoCと aka-only-server の加入者を扱える）。
+	AdminAPIProvisioner AdminAPI = "provisioner"
+)
+
+// 接続先ごとの既定値。
+const (
+	defaultProvisioningAPIURL = "https://provisioning-api:9444/admin/v1"
+	defaultProvisionerURL     = "https://eapaka-provisioner:9446/admin/v1"
+	// provisioningAPITimeout は provisioning-api の 1 回の呼び出しの上限時間。
+	provisioningAPITimeout = 10 * time.Second
+	// provisionerTimeout は provisioner の 1 回の呼び出しの上限時間。provisioner の加入者の作成は、
+	// 補償を含めて下流を最大 5 回呼ぶ（下流ごとの上限は既定 5 秒）。provisioner の IMSI のロックの有効期限と同じにする。
+	provisionerTimeout = 60 * time.Second
+)
+
 // Load は環境変数から設定を読み込む。
 func Load() (Config, error) {
 	c := Config{
@@ -64,7 +89,7 @@ func Load() (Config, error) {
 		TLSKeyFile:  cmp.Or(os.Getenv("EAPAKA_WEBGUI_TLS_KEY"), "/data/tls/key.pem"),
 		TLSHosts:    splitList(cmp.Or(os.Getenv("EAPAKA_WEBGUI_TLS_HOSTS"), "localhost,127.0.0.1")),
 
-		AdminURL:            cmp.Or(os.Getenv("EAPAKA_WEBGUI_ADMIN_URL"), "https://provisioning-api:9444/admin/v1"),
+		AdminAPI:            AdminAPI(cmp.Or(os.Getenv("EAPAKA_WEBGUI_ADMIN_API"), string(AdminAPIProvisioningAPI))),
 		AdminClientCertFile: cmp.Or(os.Getenv("EAPAKA_WEBGUI_ADMIN_CLIENT_CERT"), "/certs/admin-client.pem"),
 		AdminClientKeyFile:  os.Getenv("EAPAKA_WEBGUI_ADMIN_CLIENT_KEY"),
 		AdminServerCertFile: cmp.Or(os.Getenv("EAPAKA_WEBGUI_ADMIN_SERVER_CERT"), "/certs/admin-server.pem"),
@@ -79,6 +104,16 @@ func Load() (Config, error) {
 		if err := c.LogLevel.UnmarshalText([]byte(v)); err != nil {
 			return Config{}, fmt.Errorf("EAPAKA_WEBGUI_LOG_LEVEL: %w", err)
 		}
+	}
+	switch c.AdminAPI {
+	case AdminAPIProvisioningAPI:
+		c.AdminURL = cmp.Or(os.Getenv("EAPAKA_WEBGUI_ADMIN_URL"), defaultProvisioningAPIURL)
+		c.AdminTimeout = provisioningAPITimeout
+	case AdminAPIProvisioner:
+		c.AdminURL = cmp.Or(os.Getenv("EAPAKA_WEBGUI_ADMIN_URL"), defaultProvisionerURL)
+		c.AdminTimeout = provisionerTimeout
+	default:
+		return Config{}, fmt.Errorf("EAPAKA_WEBGUI_ADMIN_API: must be %s or %s", AdminAPIProvisioningAPI, AdminAPIProvisioner)
 	}
 	var err error
 	if c.SessionIdleTimeout, err = positiveDuration("EAPAKA_WEBGUI_SESSION_IDLE_TIMEOUT", 30*time.Minute); err != nil {

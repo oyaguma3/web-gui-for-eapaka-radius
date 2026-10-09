@@ -12,7 +12,7 @@ func TestLoadDefaults(t *testing.T) {
 		"EAPAKA_WEBGUI_ADMIN_URL", "EAPAKA_WEBGUI_ADMIN_CLIENT_CERT", "EAPAKA_WEBGUI_ADMIN_CLIENT_KEY", "EAPAKA_WEBGUI_ADMIN_SERVER_CERT",
 		"EAPAKA_WEBGUI_VALKEY_ADDR", "EAPAKA_WEBGUI_VALKEY_PASSWORD", "EAPAKA_WEBGUI_INITIAL_ADMIN_ID", "EAPAKA_WEBGUI_INITIAL_ADMIN_PASSWORD",
 		"EAPAKA_WEBGUI_SESSION_IDLE_TIMEOUT", "EAPAKA_WEBGUI_SESSION_MAX_AGE", "EAPAKA_WEBGUI_LOGIN_MAX_FAILURES", "EAPAKA_WEBGUI_LOGIN_LOCK_DURATION",
-		"EAPAKA_WEBGUI_AUDIT_MAX"} {
+		"EAPAKA_WEBGUI_AUDIT_MAX", "EAPAKA_WEBGUI_ADMIN_API"} {
 		t.Setenv(name, "")
 	}
 	c, err := Load()
@@ -28,7 +28,8 @@ func TestLoadDefaults(t *testing.T) {
 	if c.LogLevel != slog.LevelInfo {
 		t.Errorf("LogLevel = %v", c.LogLevel)
 	}
-	if c.AdminURL != "https://provisioning-api:9444/admin/v1" || c.AdminClientCertFile != "/certs/admin-client.pem" ||
+	if c.AdminAPI != AdminAPIProvisioningAPI || c.AdminTimeout != 10*time.Second ||
+		c.AdminURL != "https://provisioning-api:9444/admin/v1" || c.AdminClientCertFile != "/certs/admin-client.pem" ||
 		c.AdminClientKeyFile != "" || c.AdminServerCertFile != "/certs/admin-server.pem" {
 		t.Errorf("admin: got %+v", c)
 	}
@@ -98,5 +99,29 @@ func TestLoad(t *testing.T) {
 	t.Setenv("EAPAKA_WEBGUI_LOG_LEVEL", "verbose")
 	if _, err := Load(); err == nil {
 		t.Error("bad log level: want error")
+	}
+}
+
+func TestLoadAdminAPI(t *testing.T) {
+	t.Setenv("EAPAKA_WEBGUI_ADMIN_URL", "")
+
+	// provisioner 経由: 既定の URL は同一ホストの provisioner、上限時間は 60 秒。
+	t.Setenv("EAPAKA_WEBGUI_ADMIN_API", "provisioner")
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.AdminAPI != AdminAPIProvisioner || c.AdminURL != "https://eapaka-provisioner:9446/admin/v1" || c.AdminTimeout != time.Minute {
+		t.Errorf("provisioner: got %+v", c)
+	}
+	// URL を指定すればそれを使う。
+	t.Setenv("EAPAKA_WEBGUI_ADMIN_URL", "https://100.64.0.30:9446/admin/v1")
+	if c, err := Load(); err != nil || c.AdminURL != "https://100.64.0.30:9446/admin/v1" {
+		t.Errorf("url: got %q, %v", c.AdminURL, err)
+	}
+	// それ以外の値は誤り。
+	t.Setenv("EAPAKA_WEBGUI_ADMIN_API", "aka-only-server")
+	if _, err := Load(); err == nil {
+		t.Error("unknown admin api: want error")
 	}
 }
