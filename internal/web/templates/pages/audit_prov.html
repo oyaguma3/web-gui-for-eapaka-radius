@@ -1,13 +1,8 @@
 {{define "content" -}}
 {{with .Data -}}
 <h1>監査ログ</h1>
-<nav class="tabs" aria-label="監査ログの種類">
-  <ul>
-    <li><a href="/audit">BFF</a></li>
-    <li><a href="/audit/prov" aria-current="page">provisioning-api</a></li>
-  </ul>
-</nav>
-<p>本PoCの provisioning-api の監査ログ（Provisioning API を通した変更操作と、Ki / OPc・共有シークレットの取得）。新しい順。</p>
+{{template "audit-tabs" .Tabs}}
+<p>本PoCの provisioning-api の監査ログ（Provisioning API を通した変更操作と、Ki / OPc・共有シークレットの取得）。新しい順。{{if .Tabs.Provisioner}}provisioner を通した操作は、管理クライアントが provisioner の識別名になります。{{end}}</p>
 <p class="muted">本PoCの Admin TUI での操作は含みません。保持する件数には上限があり（本PoC側の PROVISIONING_API_AUDIT_MAX。既定 10000 件）、それより古いものは本PoCのホストのログファイル（provisioning-api.log）にあります。</p>
 {{if .Error}}<p class="notice-error" role="alert">{{.Error}}</p>{{end}}
 {{if .Rows -}}

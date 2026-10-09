@@ -1,0 +1,44 @@
+{{define "content" -}}
+{{with .Data -}}
+<h1>監査ログ</h1>
+{{template "audit-tabs" .Tabs}}
+<p>aka-only-server の監査ログ（管理API での変更操作と Ki / OPc の取得。provisioner を通して参照）。新しい順。</p>
+<p class="muted">aka-only-server の管理 GUI など、provisioner 以外の管理クライアントの操作も含みます。aka-only-server のコマンドでの操作は含みません。</p>
+{{if .Error}}<p class="notice-error" role="alert">{{.Error}}</p>{{end}}
+{{if .Rows -}}
+<figure>
+  <table class="audit">
+    <thead>
+      <tr><th scope="col">日時</th><th scope="col">操作者</th><th scope="col">管理クライアント</th><th scope="col">操作</th><th scope="col">対象</th><th scope="col">内容</th><th scope="col">トレースID</th></tr>
+    </thead>
+    <tbody id="audit-rows">
+      {{- range .Rows}}{{template "audit-aka-row" .}}{{end}}
+    </tbody>
+  </table>
+</figure>
+{{template "audit-aka-pager" .}}
+{{- else if not .Error -}}
+<p>記録はありません。</p>
+{{- end}}
+{{- end}}
+{{- end}}
+
+{{define "audit-aka-row" -}}
+<tr><td>{{datetime .Time}}</td><td>{{or .Operator "-"}}</td><td>{{.MgmtClient}}</td><td>{{.Action}}</td><td>{{.Target}}</td>
+<td><code class="wrap">{{detailText .Detail}}</code></td><td><code class="wrap">{{or .TraceID "-"}}</code></td></tr>
+{{- end}}
+
+{{define "audit-aka-pager" -}}
+<div id="audit-pager">
+  {{- if .Next}}
+  <button type="button" class="secondary outline" hx-get="/audit/aka?before={{.Next}}" hx-target="#audit-pager" hx-swap="outerHTML">さらに古いものを表示</button>
+  {{- end}}
+</div>
+{{- end}}
+
+{{/* 「さらに古いものを表示」の応答。行を一覧の末尾に足し、ボタンを置き換える。 */}}
+{{define "audit-aka-more" -}}
+{{template "audit-aka-pager" .}}
+{{if .Error}}<p class="notice-error" role="alert">{{.Error}}</p>{{end}}
+{{if .Rows}}<template><tbody hx-swap-oob="beforeend:#audit-rows">{{range .Rows}}{{template "audit-aka-row" .}}{{end}}</tbody></template>{{end}}
+{{- end}}

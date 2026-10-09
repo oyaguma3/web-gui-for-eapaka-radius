@@ -30,7 +30,7 @@
   {{if .CanEditAuth -}}
   <article>
     <header><strong>Ki / OPc</strong></header>
-    {{template "subscriber-keys" (keysPlaceholder .Sub.IMSI)}}
+    {{template "subscriber-keys" (keysPlaceholder .Sub.IMSI false)}}
   </article>
 
   <article>
@@ -68,24 +68,5 @@
 
   <button type="button" class="contrast" hx-post="/subscribers/{{.Sub.IMSI}}/delete" hx-target="#subscriber" hx-swap="outerHTML"
     hx-confirm="加入者 {{.Sub.IMSI}} を削除します。同じ IMSI の認可ポリシーは削除されません。よろしいですか？">この加入者を削除</button>
-</div>
-{{- end}}
-
-{{/* Ki / OPc の表示。表示ボタンを押したときだけ Provisioning API から取得する。 */}}
-{{define "subscriber-keys" -}}
-<div id="keys">
-  {{if .Error}}<p class="notice-error" role="alert">{{.Error}}</p>{{end}}
-  {{if .Keys -}}
-  <table>
-    <tbody>
-      <tr><th scope="row">Ki</th><td><code>{{.Keys.Ki}}</code></td></tr>
-      <tr><th scope="row">OPc</th><td><code>{{.Keys.OPc}}</code></td></tr>
-    </tbody>
-  </table>
-  <small>表示したことは provisioning-api と BFF の監査ログに残りました。画面を移動すると表示は消えます。</small>
-  {{- else -}}
-  <button type="button" class="secondary" hx-post="/subscribers/{{.IMSI}}/keys" hx-target="#keys" hx-swap="outerHTML">Ki / OPc を表示</button>
-  <small>表示すると provisioning-api と BFF の監査ログに残ります。</small>
-  {{- end}}
 </div>
 {{- end}}

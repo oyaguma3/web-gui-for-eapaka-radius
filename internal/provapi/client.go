@@ -27,6 +27,7 @@ import (
 	"io"
 	"log/slog"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -110,6 +111,8 @@ func New(opts Options) (*Client, error) {
 			Certificates: []tls.Certificate{cert},
 			RootCAs:      roots,
 		},
+		// 接続の確立は 10 秒で打ち切る（接続できない相手を、呼び出し全体の上限まで待たない）。
+		DialContext:         (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
 		ForceAttemptHTTP2:   true,
 		TLSHandshakeTimeout: 10 * time.Second,
 		IdleConnTimeout:     90 * time.Second,

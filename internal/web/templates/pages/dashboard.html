@@ -5,6 +5,8 @@
 <article class="notice-error" role="alert">
   <p>{{.ProvError}}</p>
 </article>
+{{- else if .PV -}}
+{{template "dashboard-provisioner" .PV}}
 {{- else -}}
 <div class="grid">
   <article>
@@ -36,4 +38,63 @@
 </table>
 {{- end}}
 {{- end}}
+{{- end}}
+
+{{/* eapaka-node-provisioner 経由のときのダッシュボード。provisioner の /status をそのまま出す
+     （RADIUSクライアント・認可ポリシー・セッションの件数は provisioner の /status にない）。 */}}
+{{define "dashboard-provisioner" -}}
+{{with .Operations}}{{if or .Running .Retrying .Failed -}}
+<article class="notice-warn" role="status">
+  <p>完了していない操作があります（実行中 {{.Running}}、やり直し中 {{.Retrying}}、失敗 {{.Failed}}）。<a href="/operations">操作の記録</a>で状況を確かめてください。</p>
+</article>
+{{- end}}{{end}}
+<div class="grid">
+  {{template "dashboard-downstream" (dict "Label" "本PoCの Provisioning API" "D" .Downstreams.Prov)}}
+  {{template "dashboard-downstream" (dict "Label" "aka-only-server" "D" .Downstreams.Aka)}}
+  <article>
+    <header><a href="/operations">未完了の操作</a></header>
+    {{with .Operations}}<p class="metric">{{add .Running .Retrying .Failed}}</p>
+    {{- else}}<p>件数を取得できませんでした（provisioner の Valkey）</p>{{end}}
+  </article>
+</div>
+<table>
+  <tbody>
+    <tr><th scope="row">接続先</th><td>eapaka-node-provisioner {{.Version}}（起動日時 {{datetime .StartedAt}}）</td></tr>
+    <tr>
+      <th scope="row">鍵の置き場所（PLMN マップ）</th>
+      <td>{{template "plmn-map" .PLMNMap}}</td>
+    </tr>
+    <tr>
+      <th scope="row">vector-gateway の AVクライアント</th>
+      <td>
+        {{- if not .Downstreams.Aka.Configured}}<span class="muted">aka-only-server を扱わない設定です</span>
+        {{- else if not .Downstreams.Aka.Reachable}}<span class="muted">aka-only-server に接続できないため、確かめられませんでした</span>
+        {{- else if not .AVClient.Exists}}<span class="notice-error">ID {{.AVClient.ID}} の AVクライアントが aka-only-server にありません（aka-only-server に鍵を置く加入者を登録できません）</span>
+        {{- else if not .AVClient.Enabled}}<span class="notice-error">ID {{.AVClient.ID}}（{{.AVClient.Name}}）は無効になっています（aka-only-server に鍵を置く加入者は認証できません）</span>
+        {{- else}}ID {{.AVClient.ID}}（{{.AVClient.Name}}）{{end -}}
+      </td>
+    </tr>
+    <tr>
+      <th scope="row">provisioner の Valkey</th>
+      <td>{{if .Valkey.Reachable}}接続できます{{else}}<span class="notice-error">接続できません（加入者の登録・変更・削除はできません）</span>{{end}}</td>
+    </tr>
+  </tbody>
+</table>
+{{- end}}
+
+{{define "dashboard-downstream" -}}
+<article>
+  <header>{{.Label}}</header>
+  {{- with .D}}
+  {{- if not .Configured}}
+  <p class="muted">扱わない設定です</p>
+  {{- else if .Reachable}}
+  <p class="metric">{{.SubscriberCount}}</p>
+  <small>加入者（鍵）。{{.Version}}{{with .NodeName}}、ノード {{.}}{{end}}</small>
+  {{- else}}
+  <p class="notice-error">provisioner から接続できません。</p>
+  <small>{{or .Hint .Error}}</small>
+  {{- end}}
+  {{- end}}
+</article>
 {{- end}}

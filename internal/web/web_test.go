@@ -47,6 +47,12 @@ func newTestEnv(t *testing.T, prov *fakeProv) *testEnv {
 
 func newTestEnvLog(t *testing.T, prov *fakeProv, log *slog.Logger) *testEnv {
 	t.Helper()
+	return newTestEnvFull(t, prov, nil, log)
+}
+
+// newTestEnvFull は画面のテスト環境を作る。pv を渡すと eapaka-node-provisioner 経由の画面になる。
+func newTestEnvFull(t *testing.T, prov *fakeProv, pv *fakePV, log *slog.Logger) *testEnv {
+	t.Helper()
 	st := authtest.NewMemStore()
 	svc, err := auth.New(t.Context(), auth.Options{
 		Store: st, Log: discard, InitialAdminID: ownerID, InitialAdminPassword: ownerPW,
@@ -56,7 +62,11 @@ func newTestEnvLog(t *testing.T, prov *fakeProv, log *slog.Logger) *testEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := New(Options{Log: log, Version: "test", Prov: prov, Auth: svc})
+	opts := Options{Log: log, Version: "test", Prov: prov, Auth: svc}
+	if pv != nil {
+		opts.PV = pv
+	}
+	h, err := New(opts)
 	if err != nil {
 		t.Fatal(err)
 	}

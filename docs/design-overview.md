@@ -256,7 +256,7 @@ provisioner の API（provisioner の `docs/openapi/provisioner-api.yaml` 0.2.0�
 ### 12.4 進め方
 
 1. 設定、provisioner 用の API クライアント（加入者・状態・操作の記録・監査ログ）、`check-admin` と `gen-client-cert` の対応、契約テストと CI … 実装済み（2026-10-10。§12.5）
-2. 画面（ダッシュボード、加入者、操作の記録、監査ログのタブ、エラーの文）
+2. 画面（ダッシュボード、加入者、操作の記録、監査ログのタブ、エラーの文） … 実装済み（2026-10-10。§12.6。画面は `docs/screen-spec.md` §11）
 3. compose・運用ガイド・README・画面仕様、simwifi での通しの確認（BFF → provisioner → 本PoC と aka-only-server、eapaka_test での認証）
 
 ### 12.5 実装の作り（ステップ 1）
@@ -270,5 +270,16 @@ provisioner の API（provisioner の `docs/openapi/provisioner-api.yaml` 0.2.0�
 - `check-admin`: provisioner 経由のときは、provisioner の版、下流 2 つへの接続（接続できなければ provisioner が返す原因の見当）、vector-gateway の AVクライアント、PLMN マップ、未完了の操作の件数を表示する。provisioner に接続できない・取り違えはエラー（終了コード 1）、provisioner の先の下流に接続できないことは表示だけにする（provisioner の `check-downstream` で確かめる）。
 - `gen-client-cert`: 標準エラーに `PROVISIONING_API_ADMIN_CLIENTS=` と `PROVISIONER_ADMIN_CLIENTS=` の両方の行を出す。
 - 契約テスト（`internal/pvapi/integration_test.go`）: `EAPAKA_WEBGUI_TEST_PROVISIONER_URL` / `_CLIENT_CERT` / `_SERVER_CERT` を指定したときだけ動く。本PoCに鍵を置く加入者（`00101...`）の作成・`Idempotency-Key` の再送・重複の 409（`conflicts`）・取得・一覧・変更・鍵の取得（中継）・削除（ポリシーも消える）、provisioner と provisioning-api の監査ログのトレースID、aka-only-server に鍵を置く加入者（`00102...`。provisioner の PLMN マップで `01` にしたときだけ）の作成・変更・削除と aka-only-server の監査ログ、操作の記録（ないものは 404）、中継（RADIUSクライアント・認可ポリシー・セッション）を確かめる。CI のジョブ「eapaka-node-provisioner との契約テスト」で、provisioner・provisioning-api・aka-only-server を固定のコミットでビルド・起動して実行する。
-- この時点では画面は provisioner に対応していない（provisioner 経由の設定で起動すると、加入者・ダッシュボード・監査ログの画面は正しく動かない）。画面はステップ 2 で対応する。
+- 画面はステップ 2 で対応した（§12.6）。
+
+### 12.6 実装の作り（ステップ 2）
+
+- 画面の切り替え: `web.Options.PV`（`pvapi.Client`）を渡すと provisioner 経由の画面になる。加入者（一覧・登録・詳細・変更・削除）と操作の記録は provisioner 用のハンドラーとテンプレート（`subscriber_pv.go`、`operation.go`、`*_pv.html`、`operations.html`、`operation.html`）を使い、ダッシュボード・監査ログ・認可ポリシーの画面は同じハンドラーの中で分岐する。RADIUSクライアント・セッション・鍵の取得は直接のときと同じ。
+- 複数の画面で使う部品（Ki / OPc の表示、操作の記録へのリンク、監査ログのタブ、PLMN マップ）は `templates/partials/` に置き、すべてのページから使えるようにした。
+- エラーの文は `Handler` のメソッドにし（接続先の名前を変えるため）、provisioner の cause と、操作の記録の ID（`apiFailure.OperationID`。画面に「操作の記録を開く」のリンクを出す）を扱う。
+- provisioner の状態の写し: 登録フォームの PLMN マップと、監査ログのタブ（aka-only-server を扱うか）は、provisioner の `/status` の写しを 1 分使い回す（`/status` は下流 2 つを確かめるので、下流が止まっていると時間がかかる）。ダッシュボードは毎回取り直す。
+- 登録フォームの allow の確認: 既定の動作を切り替えるとフォームを描き直し（`POST /subscribers/new/form`。provisioner には送らない）、allow のときだけフォームに確認ダイアログを付ける（認可ポリシーの画面と同じ作り）。
+- `Idempotency-Key`: フォームを描くたびに `crypto/rand.Text` でキーを作って隠し項目に持たせる。provisioner に届かなかったときはキーを残し、provisioner が 4xx を返したときは新しいキーにする（provisioner は 4xx の応答を覚えるので、入力を直して同じキーで送ると内容の不一致になるため）。
+- BFF の監査ログ（§12.3 の 13）: provisioner は成功の応答に操作の記録の ID を返さないので、BFF の監査ログには ID を入れず、鍵の置き場所（`keyStore`）を入れる。provisioner の監査ログとはトレースID で突き合わせられ、そちらに操作の記録の ID がある。操作の記録のやり直し・閉じるは、対象を操作の ID として記録する。
+- 応答の時間の上限: provisioner 経由では 1 回の呼び出しの上限を 60 秒にしたので、BFF の HTTPS サーバーの `WriteTimeout`（要求を受けてから応答を書き終えるまで。既定 30 秒）を、呼び出しの上限＋30 秒にした（30 秒を超えた応答が書き出せず、ブラウザに HTTP/2 のエラーとして届くことを手元の確認で見つけた）。あわせて、接続先への接続の確立は 10 秒で打ち切る（接続できない相手を、呼び出し全体の上限まで待たない）。
 

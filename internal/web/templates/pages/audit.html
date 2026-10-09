@@ -1,14 +1,9 @@
 {{define "content" -}}
 {{with .Data -}}
 <h1>監査ログ</h1>
-<nav class="tabs" aria-label="監査ログの種類">
-  <ul>
-    <li><a href="/audit" aria-current="page">BFF</a></li>
-    <li><a href="/audit/prov">provisioning-api</a></li>
-  </ul>
-</nav>
-<p>BFF の監査ログ（ログイン、アカウントの操作、BFF を通した Provisioning API の操作）。新しい順。</p>
-<p class="muted">provisioning-api 自身の監査ログは「provisioning-api」のタブで見られます。内容の「trace_id」で突き合わせられます。</p>
+{{template "audit-tabs" .Tabs}}
+<p>BFF の監査ログ（ログイン、アカウントの操作、BFF を通した{{if .Tabs.Provisioner}} provisioner{{else}} Provisioning API{{end}} の操作）。新しい順。</p>
+<p class="muted">{{if .Tabs.Provisioner}}provisioner と下流の監査ログは、それぞれのタブで見られます{{else}}provisioning-api 自身の監査ログは「provisioning-api」のタブで見られます{{end}}。内容の「trace_id」で突き合わせられます。</p>
 {{if .Error}}<p class="notice-error" role="alert">{{.Error}}</p>{{end}}
 {{if .Rows -}}
 <figure>

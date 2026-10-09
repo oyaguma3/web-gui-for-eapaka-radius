@@ -1,0 +1,45 @@
+{{/* 複数の画面で使う部品。すべてのページから使える。 */}}
+
+{{/* op-link は provisioner の操作の記録へのリンク（引数は操作の ID。空なら何も出さない）。 */}}
+{{define "op-link"}}{{with .}} <a href="/operations/{{.}}">操作の記録を開く</a>{{end}}{{end}}
+
+{{/* Ki / OPc の表示。表示ボタンを押したときだけ Provisioning API から取得する。 */}}
+{{define "subscriber-keys" -}}
+<div id="keys">
+  {{if .Error}}<p class="notice-error" role="alert">{{.Error}}</p>{{end}}
+  {{if .Keys -}}
+  <table>
+    <tbody>
+      <tr><th scope="row">Ki</th><td><code>{{.Keys.Ki}}</code></td></tr>
+      <tr><th scope="row">OPc</th><td><code>{{.Keys.OPc}}</code></td></tr>
+    </tbody>
+  </table>
+  <small>表示したことは{{if .Provisioner}} provisioner・下流{{else}} provisioning-api{{end}} と BFF の監査ログに残りました。画面を移動すると表示は消えます。</small>
+  {{- else -}}
+  <button type="button" class="secondary" hx-post="/subscribers/{{.IMSI}}/keys" hx-target="#keys" hx-swap="outerHTML">Ki / OPc を表示</button>
+  <small>表示すると{{if .Provisioner}} provisioner・下流{{else}} provisioning-api{{end}} と BFF の監査ログに残ります。</small>
+  {{- end}}
+</div>
+{{- end}}
+
+{{/* audit-tabs は監査ログの種類のタブ（引数は auditTabs）。 */}}
+{{define "audit-tabs" -}}
+<nav class="tabs" aria-label="監査ログの種類">
+  <ul>
+    <li><a href="/audit"{{if eq .Current "bff"}} aria-current="page"{{end}}>BFF</a></li>
+    {{- if .Provisioner}}
+    <li><a href="/audit/provisioner"{{if eq .Current "provisioner"}} aria-current="page"{{end}}>provisioner</a></li>
+    {{- end}}
+    <li><a href="/audit/prov"{{if eq .Current "prov"}} aria-current="page"{{end}}>provisioning-api</a></li>
+    {{- if .Aka}}
+    <li><a href="/audit/aka"{{if eq .Current "aka"}} aria-current="page"{{end}}>aka-only-server</a></li>
+    {{- end}}
+  </ul>
+</nav>
+{{- end}}
+
+{{/* plmn-map は provisioner の PLMN マップ（引数は []pvapi.PLMNEntry）。 */}}
+{{define "plmn-map" -}}
+{{- if .}}{{range $i, $e := .}}{{if $i}}、{{end}}<code>{{$e.PLMN}}</code> → {{keyStoreLabel $e.KeyStore}}{{end}}。それ以外の PLMN は本PoC
+{{- else}}なし（すべての加入者の鍵を本PoCに置く）{{end -}}
+{{- end}}

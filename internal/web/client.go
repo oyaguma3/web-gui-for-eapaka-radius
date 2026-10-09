@@ -53,7 +53,7 @@ func (h *Handler) clientsData(r *http.Request) (clientsData, int, string) {
 	d := clientsData{CanEdit: me.IsAdmin(), Form: clientForm{Errors: fieldErrors{}}}
 	clients, err := h.prov.ListRADIUSClients(r.Context())
 	if err != nil {
-		status, msg := apiErrorMessage(err, "")
+		status, msg := h.apiErrorMessage(err, "")
 		h.log.Warn("list radius clients", "error", err)
 		return d, status, msg
 	}
@@ -92,7 +92,7 @@ func (h *Handler) clientCreate(w http.ResponseWriter, r *http.Request) {
 		IP: f.IP, Secret: f.Secret, Name: f.Name, Vendor: f.Vendor,
 	})
 	if err != nil {
-		status, msg := apiErrorMessage(err, "")
+		status, msg := h.apiErrorMessage(err, "")
 		h.log.Warn("create radius client", "error", err)
 		fail(status, msg)
 		return
@@ -142,7 +142,7 @@ func (h *Handler) loadClient(r *http.Request, id int64) (clientData, int, string
 	d := clientData{CanEdit: me.IsAdmin(), Form: clientForm{Errors: fieldErrors{}}}
 	c, err := h.prov.GetRADIUSClient(r.Context(), id)
 	if err != nil {
-		status, msg := apiErrorMessage(err, notFoundMessage("RADIUSクライアント #"+strconv.FormatInt(id, 10)))
+		status, msg := h.apiErrorMessage(err, notFoundMessage("RADIUSクライアント #"+strconv.FormatInt(id, 10)))
 		if status != http.StatusNotFound {
 			h.log.Warn("get radius client", "error", err)
 		}
@@ -201,7 +201,7 @@ func (h *Handler) clientUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	cur, err := h.prov.GetRADIUSClient(r.Context(), id)
 	if err != nil {
-		status, msg := apiErrorMessage(err, notFoundMessage("RADIUSクライアント #"+strconv.FormatInt(id, 10)))
+		status, msg := h.apiErrorMessage(err, notFoundMessage("RADIUSクライアント #"+strconv.FormatInt(id, 10)))
 		h.renderErrorLink(w, r, status, msg, "/clients", "RADIUSクライアントの一覧へ")
 		return
 	}
@@ -226,7 +226,7 @@ func (h *Handler) clientUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := h.prov.UpdateRADIUSClient(r.Context(), id, u); err != nil {
-		status, msg := apiErrorMessage(err, notFoundMessage("RADIUSクライアント #"+strconv.FormatInt(id, 10)))
+		status, msg := h.apiErrorMessage(err, notFoundMessage("RADIUSクライアント #"+strconv.FormatInt(id, 10)))
 		h.log.Warn("update radius client", "error", err)
 		if status == http.StatusNotFound {
 			h.renderErrorLink(w, r, status, msg, "/clients", "RADIUSクライアントの一覧へ")
@@ -260,7 +260,7 @@ func (h *Handler) clientSecret(w http.ResponseWriter, r *http.Request) {
 	}
 	secret, err := h.prov.GetRADIUSClientSecret(r.Context(), id)
 	if err != nil {
-		status, msg := apiErrorMessage(err, notFoundMessage("RADIUSクライアント #"+strconv.FormatInt(id, 10)))
+		status, msg := h.apiErrorMessage(err, notFoundMessage("RADIUSクライアント #"+strconv.FormatInt(id, 10)))
 		h.log.Warn("get radius client secret", "error", err)
 		h.renderBlock(w, r, status, "client", "client-secret", secretData{ID: id, Error: msg})
 		return
@@ -276,7 +276,7 @@ func (h *Handler) clientDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.prov.DeleteRADIUSClient(r.Context(), id); err != nil {
-		status, msg := apiErrorMessage(err, notFoundMessage("RADIUSクライアント #"+strconv.FormatInt(id, 10)))
+		status, msg := h.apiErrorMessage(err, notFoundMessage("RADIUSクライアント #"+strconv.FormatInt(id, 10)))
 		h.log.Warn("delete radius client", "error", err)
 		if status == http.StatusNotFound {
 			h.renderErrorLink(w, r, status, msg, "/clients", "RADIUSクライアントの一覧へ")

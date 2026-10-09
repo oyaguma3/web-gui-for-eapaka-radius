@@ -43,7 +43,7 @@ func (h *Handler) subscribers(w http.ResponseWriter, r *http.Request) {
 		Prefix: d.Prefix, Cursor: d.Cursor, Limit: subscribersPerPage,
 	})
 	if err != nil {
-		status, msg := apiErrorMessage(err, "")
+		status, msg := h.apiErrorMessage(err, "")
 		h.log.Warn("list subscribers", "error", err)
 		d.Error = msg
 		h.render(w, r, status, "subscribers", "加入者", d)
@@ -91,7 +91,7 @@ func (h *Handler) subscriberCreate(w http.ResponseWriter, r *http.Request) {
 		IMSI: f.IMSI, Ki: f.Ki, OPc: f.OPc, SQN: f.SQN, AMF: f.AMF,
 	})
 	if err != nil {
-		status, msg := apiErrorMessage(err, "")
+		status, msg := h.apiErrorMessage(err, "")
 		h.log.Warn("create subscriber", "error", err)
 		f.Error = msg
 		h.render(w, r, status, "subscriber_new", "加入者の登録", f)
@@ -122,7 +122,7 @@ func (h *Handler) loadSubscriber(r *http.Request, imsi string) (subscriberData, 
 	d := subscriberData{CanEditAuth: me.IsAdmin(), Errors: fieldErrors{}}
 	sub, err := h.prov.GetSubscriber(r.Context(), imsi)
 	if err != nil {
-		status, msg := apiErrorMessage(err, notFoundMessage("加入者 "+imsi))
+		status, msg := h.apiErrorMessage(err, notFoundMessage("加入者 "+imsi))
 		if status != http.StatusNotFound {
 			h.log.Warn("get subscriber", "error", err)
 		}
@@ -134,7 +134,7 @@ func (h *Handler) loadSubscriber(r *http.Request, imsi string) (subscriberData, 
 		d.Policy = &p
 	case provapi.CauseOf(err) != provapi.CausePolicyNotFound:
 		h.log.Warn("get policy", "error", err)
-		_, d.PolicyError = apiErrorMessage(err, "")
+		_, d.PolicyError = h.apiErrorMessage(err, "")
 	}
 	return d, http.StatusOK, ""
 }
@@ -193,7 +193,7 @@ func (h *Handler) subscriberAuth(w http.ResponseWriter, r *http.Request) {
 	}
 	cur, err := h.prov.GetSubscriber(r.Context(), imsi)
 	if err != nil {
-		status, msg := apiErrorMessage(err, notFoundMessage("加入者 "+imsi))
+		status, msg := h.apiErrorMessage(err, notFoundMessage("加入者 "+imsi))
 		h.renderErrorLink(w, r, status, msg, "/subscribers", "加入者の一覧へ")
 		return
 	}
@@ -233,7 +233,7 @@ func (h *Handler) subscriberAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := h.prov.UpdateSubscriber(r.Context(), imsi, u); err != nil {
-		status, msg := apiErrorMessage(err, notFoundMessage("加入者 "+imsi))
+		status, msg := h.apiErrorMessage(err, notFoundMessage("加入者 "+imsi))
 		h.log.Warn("update subscriber", "error", err)
 		h.renderSubscriber(w, r, imsi, status, func(d *subscriberData) { d.Error = msg })
 		return
@@ -244,7 +244,8 @@ func (h *Handler) subscriberAuth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// subscriberKeys は Ki と OPc を表示する。管理者だけが使える。取得は provisioning-api の監査ログに残る。
+// subscriberKeys は Ki と OPc を表示する。管理者だけが使える。取得は接続先の監査ログに残る。
+// provisioner も Provisioning API と同じ形で返すので、どちらの接続先でも使う。
 func (h *Handler) subscriberKeys(w http.ResponseWriter, r *http.Request) {
 	imsi, ok := h.subscriberIMSI(w, r)
 	if !ok {
@@ -252,19 +253,21 @@ func (h *Handler) subscriberKeys(w http.ResponseWriter, r *http.Request) {
 	}
 	keys, err := h.prov.GetSubscriberKeys(r.Context(), imsi)
 	if err != nil {
-		status, msg := apiErrorMessage(err, notFoundMessage("加入者 "+imsi))
+		status, msg := h.apiErrorMessage(err, notFoundMessage("加入者 "+imsi))
 		h.log.Warn("get subscriber keys", "error", err)
-		h.renderBlock(w, r, status, "subscriber", "subscriber-keys", keysData{IMSI: imsi, Error: msg})
+		h.renderBlock(w, r, status, "subscriber", "subscriber-keys", keysData{IMSI: imsi, Error: msg, Provisioner: h.pv != nil})
 		return
 	}
 	h.record(r, auditSubscriberKeysRead, imsi, nil)
-	h.renderBlock(w, r, http.StatusOK, "subscriber", "subscriber-keys", keysData{IMSI: imsi, Keys: &keys})
+	h.renderBlock(w, r, http.StatusOK, "subscriber", "subscriber-keys", keysData{IMSI: imsi, Keys: &keys, Provisioner: h.pv != nil})
 }
 
 type keysData struct {
 	IMSI  string
 	Keys  *provapi.SubscriberKeys
 	Error string
+	// Provisioner は eapaka-node-provisioner 経由か（監査ログの説明の文を変える）。
+	Provisioner bool
 }
 
 // subscriberDelete は加入者を削除する。全員が使える。同じ IMSI の認可ポリシーは残る。
@@ -274,7 +277,7 @@ func (h *Handler) subscriberDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.prov.DeleteSubscriber(r.Context(), imsi); err != nil {
-		status, msg := apiErrorMessage(err, notFoundMessage("加入者 "+imsi))
+		status, msg := h.apiErrorMessage(err, notFoundMessage("加入者 "+imsi))
 		h.log.Warn("delete subscriber", "error", err)
 		if status == http.StatusNotFound {
 			// 既にないので、詳細を出し直せない。

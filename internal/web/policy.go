@@ -53,7 +53,7 @@ func (h *Handler) renderPolicies(w http.ResponseWriter, r *http.Request, status 
 	})
 	if err != nil {
 		var msg string
-		status, msg = apiErrorMessage(err, "")
+		status, msg = h.apiErrorMessage(err, "")
 		h.log.Warn("list policies", "error", err)
 		d.Error = msg
 		h.render(w, r, status, "policies", "認可ポリシー", d)
@@ -104,6 +104,10 @@ type policyData struct {
 	Errors  fieldErrors
 	Message string
 	Error   string
+	// ErrorOperation は provisioner の操作の記録の ID（同じ IMSI の未完了の操作で断られた場合など。リンクを出す）。
+	ErrorOperation string
+	// Provisioner は eapaka-node-provisioner 経由か（加入者の有無の説明を変える）。
+	Provisioner bool
 }
 
 // formFromPolicy は保存済みのポリシーを編集の形にする。
@@ -132,7 +136,20 @@ func (h *Handler) policyIMSI(w http.ResponseWriter, r *http.Request) (string, bo
 }
 
 // subscriberState は、同じ IMSI の加入者の有無を返す（確かめられなければ空）。
+// provisioner 経由のときは、鍵の置き場所（本PoC または aka-only-server）に鍵があるかで決める
+// （provisioner の加入者は、認可ポリシーだけがある IMSI も返す）。
 func (h *Handler) subscriberState(r *http.Request, imsi string) string {
+	if h.pv != nil {
+		sub, err := h.pv.GetSubscriber(r.Context(), imsi)
+		switch {
+		case err == nil && sub.Key != nil:
+			return "yes"
+		case err == nil || provapi.CauseOf(err) == provapi.CauseUserNotFound:
+			return "no"
+		}
+		h.log.Warn("get subscriber", "error", err)
+		return ""
+	}
 	_, err := h.prov.GetSubscriber(r.Context(), imsi)
 	switch {
 	case err == nil:
@@ -158,7 +175,7 @@ func (h *Handler) policy(w http.ResponseWriter, r *http.Request) {
 	case provapi.CauseOf(err) == provapi.CausePolicyNotFound:
 		// まだない。既定は Admin TUI と同じく deny でルールなし。保存すると作成する。
 	default:
-		status, msg := apiErrorMessage(err, "")
+		status, msg := h.apiErrorMessage(err, "")
 		h.log.Warn("get policy", "error", err)
 		h.renderErrorLink(w, r, status, msg, "/policies", "認可ポリシーの一覧へ")
 		return
@@ -197,6 +214,7 @@ func readPolicyForm(r *http.Request) (policyData, error) {
 // renderPolicy は編集の画面（htmx では編集の部分だけ）を返す。
 func (h *Handler) renderPolicy(w http.ResponseWriter, r *http.Request, status int, d policyData) {
 	numberRules(d.Rules)
+	d.Provisioner = h.pv != nil
 	if r.Header.Get("HX-Request") == "true" {
 		h.renderBlock(w, r, status, "policy", "policy-detail", d)
 		return
@@ -344,14 +362,14 @@ func (h *Handler) policySave(w http.ResponseWriter, r *http.Request) {
 	}
 	p, created, err := h.prov.PutPolicy(r.Context(), imsi, put)
 	if err != nil {
-		status, msg := apiErrorMessage(err, "")
+		f := h.apiError(err, "")
 		h.log.Warn("put policy", "error", err)
 		if apiErr, ok := errors.AsType[*provapi.Error](err); ok && apiErr.Status == http.StatusBadRequest &&
 			applyInvalidParams(&d, apiErr.Problem.InvalidParams) {
-			msg = "入力を確かめてください。"
+			f.Message = "入力を確かめてください。"
 		}
-		d.Error = msg
-		h.renderPolicy(w, r, status, d)
+		d.Error, d.ErrorOperation = f.Message, f.OperationID
+		h.renderPolicy(w, r, f.Status, d)
 		return
 	}
 	h.record(r, auditPolicyPut, imsi, map[string]any{"created": created, "default": p.Default, "rules": len(p.Rules)})
@@ -371,9 +389,8 @@ func (h *Handler) policyDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.prov.DeletePolicy(r.Context(), imsi); err != nil {
-		status, msg := apiErrorMessage(err, notFoundMessage("IMSI "+imsi+" の認可ポリシー"))
 		h.log.Warn("delete policy", "error", err)
-		h.renderErrorLink(w, r, status, msg, "/policies", "認可ポリシーの一覧へ")
+		h.renderFailure(w, r, h.apiError(err, notFoundMessage("IMSI "+imsi+" の認可ポリシー")), "/policies", "認可ポリシーの一覧へ")
 		return
 	}
 	h.record(r, auditPolicyDelete, imsi, nil)

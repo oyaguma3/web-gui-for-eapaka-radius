@@ -1,0 +1,116 @@
+{{define "content" -}}
+<nav aria-label="breadcrumb"><ul><li><a href="/subscribers">加入者</a></li><li>{{.Data.Sub.IMSI}}</li></ul></nav>
+{{template "subscriber-pv-detail" .Data}}
+{{- end}}
+
+{{/* 操作のたびに htmx でこの部分を差し替える。 */}}
+{{define "subscriber-pv-detail" -}}
+<div id="subscriber">
+  <h1>加入者 {{.Sub.IMSI}}</h1>
+  {{if .Message}}<p class="notice-ok" role="status">{{.Message}}</p>{{end}}
+  {{if .Error}}<p class="notice-error" role="alert">{{.Error}}{{template "op-link" .ErrorOperation}}</p>{{end}}
+
+  {{range .Sub.Issues -}}
+  <article class="notice-warn" role="status">
+    <strong>{{issueLabel .}}</strong>
+    <p>{{issueHelp .}}</p>
+  </article>
+  {{- end}}
+
+  <table>
+    <tbody>
+      <tr><th scope="row">鍵の置き場所</th><td>{{keyStoreLabel .Sub.KeyStore}} <small class="muted">（IMSI の PLMN と provisioner の PLMN マップで決まります）</small></td></tr>
+      {{- with .Sub.Key}}
+      <tr><th scope="row">SQN</th><td><code>{{.SQN}}</code> <small class="muted">（認証のたびに進みます）</small></td></tr>
+      <tr><th scope="row">AMF</th><td><code>{{.AMF}}</code></td></tr>
+      {{- if .SQNType}}
+      <tr><th scope="row">SQN の増加タイプ</th><td><code>{{.SQNType}}</code></td></tr>
+      <tr><th scope="row">平文HTTP での払い出し</th><td>{{if deref .AllowPlain}}許可する{{else}}許可しない{{end}}</td></tr>
+      <tr><th scope="row">許可するクライアントID</th><td>{{range $i, $id := .AllowedClientIDs}}{{if $i}}, {{end}}{{$id}}{{else}}なし{{end}} <small class="muted">（aka-only-server の AVクライアント）</small></td></tr>
+      {{- end}}
+      <tr><th scope="row">登録日時</th><td>{{datetime .CreatedAt}}</td></tr>
+      {{- if not .UpdatedAt.IsZero}}
+      <tr><th scope="row">変更日時</th><td>{{datetime .UpdatedAt}}</td></tr>
+      {{- end}}
+      {{- else}}
+      <tr><th scope="row">鍵（Ki / OPc）</th><td><span class="muted">なし</span></td></tr>
+      {{- end}}
+      <tr>
+        <th scope="row">認可ポリシー</th>
+        <td>
+          {{- with .Sub.Policy}}<a href="/policies/{{$.Sub.IMSI}}">あり</a>（既定 {{.Default}}、ルール {{len .Rules}} 件。ルールの編集は認可ポリシーの画面で行います）
+          {{- else}}なし（<a href="/policies/{{.Sub.IMSI}}">作成する</a>）{{end -}}
+        </td>
+      </tr>
+      <tr><th scope="row">セッション</th><td><a href="/sessions?imsi={{.Sub.IMSI}}">この加入者のセッションを表示</a></td></tr>
+    </tbody>
+  </table>
+
+  {{if and .CanEditAuth .Sub.Key -}}
+  <article>
+    <header><strong>Ki / OPc</strong></header>
+    {{template "subscriber-keys" (keysPlaceholder .Sub.IMSI true)}}
+  </article>
+
+  <article>
+    <header><strong>鍵の属性の変更</strong></header>
+    <form hx-post="/subscribers/{{.Sub.IMSI}}/auth" hx-target="#subscriber" hx-swap="outerHTML" autocomplete="off">
+      <input type="hidden" name="idem" value="{{.AuthKey}}">
+      <div class="grid">
+        <label>
+          Ki
+          <input name="ki" pattern="[0-9A-Fa-f]{32}" maxlength="32" spellcheck="false" class="mono" placeholder="変更する場合だけ入力"{{if .Errors.ki}} aria-invalid="true"{{end}}>
+          {{with .Errors.ki}}<small>{{.}}</small>{{end}}
+        </label>
+        <label>
+          OPc
+          <input name="opc" pattern="[0-9A-Fa-f]{32}" maxlength="32" spellcheck="false" class="mono" placeholder="変更する場合だけ入力"{{if .Errors.opc}} aria-invalid="true"{{end}}>
+          {{with .Errors.opc}}<small>{{.}}</small>{{end}}
+        </label>
+      </div>
+      <div class="grid">
+        <label>
+          AMF
+          <input name="amf" value="{{.Sub.Key.AMF}}" required pattern="[0-9A-Fa-f]{4}" maxlength="4" spellcheck="false" class="mono"{{if .Errors.amf}} aria-invalid="true"{{end}}>
+          {{with .Errors.amf}}<small>{{.}}</small>{{end}}
+        </label>
+        <label>
+          SQN
+          <input name="sqn" value="{{.Sub.Key.SQN}}" required pattern="[0-9A-Fa-f]{12}" maxlength="12" spellcheck="false" class="mono"{{if .Errors.sqn}} aria-invalid="true"{{end}}>
+          {{with .Errors.sqn}}<small>{{.}}</small>{{end}}
+        </label>
+      </div>
+      {{- if eq .Sub.KeyStore "aka"}}
+      <div class="grid">
+        <label>
+          SQN の増加タイプ
+          <select name="sqn_type"{{if .Errors.sqnType}} aria-invalid="true"{{end}}>
+            {{- range (list "inc1" "inc32" "inc33")}}
+            <option value="{{.}}"{{if eq . $.Sub.Key.SQNType}} selected{{end}}>{{.}}</option>
+            {{- end}}
+          </select>
+          <small>{{or .Errors.sqnType "USIM の SQN の検証方式に合わせます（本PoCの Vector API と同じ挙動は inc32）"}}</small>
+        </label>
+        <fieldset>
+          <legend>平文HTTP での払い出し</legend>
+          <label>
+            <input type="checkbox" name="allow_plain" value="1"{{if deref .Sub.Key.AllowPlain}} checked{{end}}>
+            許可する
+          </label>
+          <small>CK / IK が暗号化されずに流れます。同一ホストの平文HTTP 接続を使う場合だけ許可します。</small>
+        </fieldset>
+      </div>
+      {{- end}}
+      <small>変わった項目だけを送ります（SQN を変えなければ、認証で進んだ SQN には触れません）。変更は provisioner と下流の監査ログに操作者つきで残ります。SQN を戻すと、端末側で同期エラー（再同期）になることがあります。</small>
+      <button type="submit">変更する</button>
+    </form>
+  </article>
+  {{- end}}
+
+  <form hx-post="/subscribers/{{.Sub.IMSI}}/delete" hx-target="#subscriber" hx-swap="outerHTML"
+    hx-confirm="加入者 {{.Sub.IMSI}} を削除します。認可ポリシーと、鍵の置き場所（{{keyStoreLabel .Sub.KeyStore}}）の Ki / OPc を削除します。よろしいですか？">
+    <input type="hidden" name="idem" value="{{.DeleteKey}}">
+    <button type="submit" class="contrast">この加入者を削除</button>
+  </form>
+</div>
+{{- end}}

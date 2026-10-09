@@ -1,0 +1,44 @@
+{{define "content" -}}
+{{with .Data -}}
+<hgroup>
+  <h1>操作の記録</h1>
+  <p>完了していない操作（2 つのノードにまたがる加入者の登録・変更・削除）。作成の古い順。</p>
+</hgroup>
+<p class="muted"><small>途中で失敗した登録・変更は元に戻し（補償）、削除は残りを続けます。すぐにできなかったものは provisioner が後で自動でやり直し（やり直し中）、24 時間たっても終わらなければ「失敗」になって、手での対応を待ちます。完了した操作の記録は、個別の画面で 7 日間見られます。</small></p>
+<nav class="tabs" aria-label="状態で絞り込む">
+  <ul>
+    <li><a href="/operations"{{if not .Status}} aria-current="page"{{end}}>すべて</a></li>
+    {{- range .Statuses}}
+    <li><a href="/operations?status={{.}}"{{if eq . $.Data.Status}} aria-current="page"{{end}}>{{opStatusLabel .}}</a></li>
+    {{- end}}
+  </ul>
+</nav>
+{{if .Error}}<p class="notice-error" role="alert">{{.Error}}</p>{{end}}
+{{if .Items -}}
+<p>{{.Total}} 件{{if gt .Total (len .Items)}}（先頭の {{len .Items}} 件を表示）{{end}}</p>
+<figure>
+  <table>
+    <thead>
+      <tr><th scope="col">作成日時</th><th scope="col">操作</th><th scope="col">IMSI</th><th scope="col">鍵の置き場所</th><th scope="col">状態</th><th scope="col">やり直した回数</th><th scope="col">次のやり直し</th><th scope="col">操作者</th></tr>
+    </thead>
+    <tbody>
+      {{- range .Items}}
+      <tr>
+        <td><a href="/operations/{{.ID}}">{{datetime .CreatedAt}}</a></td>
+        <td>{{opKindLabel .Kind}}</td>
+        <td><a href="/subscribers/{{.IMSI}}">{{.IMSI}}</a></td>
+        <td>{{keyStoreLabel .KeyStore}}</td>
+        <td>{{opStatusLabel .Status}}</td>
+        <td>{{.Attempts}}</td>
+        <td>{{if eq .Status "retrying"}}{{datetime .NextAttemptAt}}{{else}}-{{end}}</td>
+        <td>{{or .Operator "-"}}</td>
+      </tr>
+      {{- end}}
+    </tbody>
+  </table>
+</figure>
+{{- else if not .Error -}}
+<p>完了していない操作はありません。</p>
+{{- end}}
+{{- end}}
+{{- end}}

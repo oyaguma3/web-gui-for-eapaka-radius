@@ -9,12 +9,13 @@
 <div id="policy">
   <h1>認可ポリシー {{.IMSI}}</h1>
   {{if .Message}}<p class="notice-ok" role="status">{{.Message}}</p>{{end}}
-  {{if .Error}}<p class="notice-error" role="alert">{{.Error}}</p>{{end}}
+  {{if .Error}}<p class="notice-error" role="alert">{{.Error}}{{template "op-link" .ErrorOperation}}</p>{{end}}
   {{if not .Exists}}<p class="notice-warn">この IMSI の認可ポリシーはまだありません。「保存」で作成します。</p>{{end}}
   {{if and .Dirty (not .Error)}}<p class="notice-warn">保存していない変更があります。「保存」で反映します。</p>{{end}}
   <p>
     加入者:
     {{if eq .Subscriber "yes"}}<a href="/subscribers/{{.IMSI}}">登録あり</a>
+    {{- else if and (eq .Subscriber "no") .Provisioner}}鍵（Ki / OPc）が登録されていません <span class="muted">（認可ポリシーだけでは認証できません。加入者を登録するには、この認可ポリシーを削除してから「加入者の登録」で認可ポリシーと一緒に登録します）</span>
     {{- else if eq .Subscriber "no"}}本PoCには登録されていません <span class="muted">（接続方式01 の加入者のように鍵を aka-only-server が持つ場合は、認可ポリシーだけでよい）</span> <a href="/subscribers/new?imsi={{.IMSI}}">加入者を登録</a>
     {{- else}}確かめられませんでした{{end}}
   </p>

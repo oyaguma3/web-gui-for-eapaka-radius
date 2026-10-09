@@ -2,6 +2,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -12,7 +13,11 @@ import (
 	"time"
 )
 
-const shutdownTimeout = 10 * time.Second
+const (
+	shutdownTimeout = 10 * time.Second
+	// defaultWriteTimeout は、要求を受け取ってから応答を書き終えるまでの上限の既定。
+	defaultWriteTimeout = 30 * time.Second
+)
 
 // Options はリスナーの設定。
 type Options struct {
@@ -22,6 +27,9 @@ type Options struct {
 	GetCertificate func(*tls.ClientHelloInfo) (*tls.Certificate, error)
 	Handler        http.Handler
 	Log            *slog.Logger
+	// WriteTimeout は、要求を受け取ってから応答を書き終えるまでの上限（ハンドラーの処理の時間を含む）。0 なら 30 秒。
+	// 接続先の 1 回の呼び出しの上限より長くする（短いと、時間のかかった応答を書き出せずに接続が切れる）。
+	WriteTimeout time.Duration
 }
 
 // Run は HTTPS リスナーを起動し、ctx が終了するかリスナーが失敗するまで待つ。
@@ -44,7 +52,7 @@ func serve(ctx context.Context, ln net.Listener, opts Options) error {
 		},
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		WriteTimeout:      cmp.Or(opts.WriteTimeout, defaultWriteTimeout),
 		IdleTimeout:       120 * time.Second,
 		ErrorLog:          slog.NewLogLogger(opts.Log.Handler(), slog.LevelWarn),
 	}

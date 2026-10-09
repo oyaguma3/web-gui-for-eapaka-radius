@@ -33,7 +33,7 @@ func (h *Handler) sessions(w http.ResponseWriter, r *http.Request) {
 	}
 	l, err := h.prov.ListSessions(r.Context(), provapi.SessionParams{IMSI: d.IMSI, Limit: sessionsLimit})
 	if err != nil {
-		status, msg := monitoringErrorMessage(err, "セッションの参照")
+		status, msg := h.monitoringErrorMessage(err, "セッションの参照")
 		h.log.Warn("list sessions", "error", err)
 		d.Error = msg
 		h.render(w, r, status, "sessions", "セッション", d)

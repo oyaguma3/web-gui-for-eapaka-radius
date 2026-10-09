@@ -16,6 +16,7 @@ import (
 
 	"github.com/oyaguma3/web-gui-for-eapaka-radius/internal/auth"
 	"github.com/oyaguma3/web-gui-for-eapaka-radius/internal/provapi"
+	"github.com/oyaguma3/web-gui-for-eapaka-radius/internal/pvapi"
 	"github.com/oyaguma3/web-gui-for-eapaka-radius/internal/store"
 )
 
@@ -23,7 +24,9 @@ import (
 var assets embed.FS
 
 // ProvAPI は画面が使う Provisioning API の操作。*provapi.Client が満たす。
-// 将来 eapaka-node-provisioner に付け替えるときは、これを満たすクライアントを渡す。
+// eapaka-node-provisioner 経由のときも、接続先を provisioner にした *provapi.Client を渡す（provisioner は
+// RADIUSクライアント・認可ポリシー・セッション・鍵の取得を Provisioning API と同じ形で中継する）。
+// 加入者・状態・監査ログは provisioner の形が違うので、PVAPI を使う。
 type ProvAPI interface {
 	Status(ctx context.Context) (provapi.Status, error)
 
@@ -50,6 +53,26 @@ type ProvAPI interface {
 	ListSessions(ctx context.Context, p provapi.SessionParams) (provapi.SessionList, error)
 }
 
+// PVAPI は、eapaka-node-provisioner 経由のときに画面が使う provisioner だけの操作。*pvapi.Client が満たす。
+type PVAPI interface {
+	Status(ctx context.Context) (pvapi.Status, error)
+
+	ListSubscribers(ctx context.Context, p provapi.ListParams) (pvapi.SubscriberList, error)
+	GetSubscriber(ctx context.Context, imsi string) (pvapi.Subscriber, error)
+	CreateSubscriber(ctx context.Context, s pvapi.SubscriberCreate, idempotencyKey string) (pvapi.Subscriber, error)
+	UpdateSubscriber(ctx context.Context, imsi string, u pvapi.SubscriberUpdate, idempotencyKey string) (pvapi.Subscriber, error)
+	DeleteSubscriber(ctx context.Context, imsi, idempotencyKey string) error
+
+	ListOperations(ctx context.Context, status string, limit int) (pvapi.OperationList, error)
+	GetOperation(ctx context.Context, id string) (pvapi.Operation, error)
+	RetryOperation(ctx context.Context, id, idempotencyKey string) (pvapi.Operation, error)
+	DismissOperation(ctx context.Context, id, idempotencyKey string) (pvapi.Operation, error)
+
+	ListAuditLogs(ctx context.Context, p provapi.AuditLogParams) (pvapi.AuditLogList, error)
+	ListProvAuditLogs(ctx context.Context, p provapi.AuditLogParams) (provapi.AuditLogList, error)
+	ListAkaAuditLogs(ctx context.Context, p provapi.AuditLogParams) (pvapi.AkaAuditLogList, error)
+}
+
 // AuthService はログイン、セッション、アカウントの操作。*auth.Service が満たす。
 type AuthService interface {
 	Login(ctx context.Context, id, password string) (string, auth.Account, error)
@@ -69,9 +92,12 @@ type Handler struct {
 	log     *slog.Logger
 	version string
 	prov    ProvAPI
-	auth    AuthService
-	pages   pages
-	static  *staticFiles
+	// pv は eapaka-node-provisioner 経由のときの provisioner だけの操作。provisioning-api に直接つなぐときは nil。
+	pv     PVAPI
+	pvInfo *pvStatusCache
+	auth   AuthService
+	pages  pages
+	static *staticFiles
 }
 
 // Options は Handler の設定。
@@ -80,12 +106,17 @@ type Options struct {
 	// Version は画面のフッターに出すバージョン。
 	Version string
 	Prov    ProvAPI
-	Auth    AuthService
+	// PV は eapaka-node-provisioner 経由のときだけ渡す（nil なら provisioning-api に直接つなぐ画面になる）。
+	PV   PVAPI
+	Auth AuthService
 }
 
 // New は Handler を作る。テンプレートと静的ファイルはここで読み込む。
 func New(opts Options) (*Handler, error) {
-	h := &Handler{log: opts.Log, version: opts.Version, prov: opts.Prov, auth: opts.Auth}
+	h := &Handler{log: opts.Log, version: opts.Version, prov: opts.Prov, pv: opts.PV, auth: opts.Auth}
+	if h.pv != nil {
+		h.pvInfo = &pvStatusCache{pv: h.pv, log: h.log}
+	}
 	var err error
 	if h.pages, err = parsePages(); err != nil {
 		return nil, fmt.Errorf("parse templates: %w", err)
@@ -109,13 +140,30 @@ func (h *Handler) Routes() http.Handler {
 
 	mux.Handle("GET /{$}", h.authed(h.dashboard))
 
-	mux.Handle("GET /subscribers", h.authed(h.subscribers))
-	mux.Handle("GET /subscribers/new", h.authed(h.subscriberNew))
-	mux.Handle("POST /subscribers", h.authed(h.subscriberCreate))
-	mux.Handle("GET /subscribers/{imsi}", h.authed(h.subscriber))
-	mux.Handle("POST /subscribers/{imsi}/auth", h.adminOnly(h.subscriberAuth))
+	// 加入者の画面は、接続先によって作りが違う（provisioner 経由では、鍵の置き場所と認可ポリシーをまとめて扱う）。
+	if h.pv != nil {
+		mux.Handle("GET /subscribers", h.authed(h.pvSubscribers))
+		mux.Handle("GET /subscribers/new", h.authed(h.pvSubscriberNew))
+		mux.Handle("POST /subscribers/new/form", h.authed(h.pvSubscriberNewForm))
+		mux.Handle("POST /subscribers", h.authed(h.pvSubscriberCreate))
+		mux.Handle("GET /subscribers/{imsi}", h.authed(h.pvSubscriber))
+		mux.Handle("POST /subscribers/{imsi}/auth", h.adminOnly(h.pvSubscriberAuth))
+		mux.Handle("POST /subscribers/{imsi}/delete", h.authed(h.pvSubscriberDelete))
+
+		mux.Handle("GET /operations", h.authed(h.operations))
+		mux.Handle("GET /operations/{id}", h.authed(h.operation))
+		mux.Handle("POST /operations/{id}/retry", h.adminOnly(h.operationRetry))
+		mux.Handle("POST /operations/{id}/dismiss", h.adminOnly(h.operationDismiss))
+	} else {
+		mux.Handle("GET /subscribers", h.authed(h.subscribers))
+		mux.Handle("GET /subscribers/new", h.authed(h.subscriberNew))
+		mux.Handle("POST /subscribers", h.authed(h.subscriberCreate))
+		mux.Handle("GET /subscribers/{imsi}", h.authed(h.subscriber))
+		mux.Handle("POST /subscribers/{imsi}/auth", h.adminOnly(h.subscriberAuth))
+		mux.Handle("POST /subscribers/{imsi}/delete", h.authed(h.subscriberDelete))
+	}
+	// Ki / OPc の取得は、provisioner も Provisioning API と同じ形で返すので共通。
 	mux.Handle("POST /subscribers/{imsi}/keys", h.adminOnly(h.subscriberKeys))
-	mux.Handle("POST /subscribers/{imsi}/delete", h.authed(h.subscriberDelete))
 
 	mux.Handle("GET /clients", h.authed(h.clients))
 	mux.Handle("POST /clients", h.adminOnly(h.clientCreate))
@@ -135,6 +183,10 @@ func (h *Handler) Routes() http.Handler {
 
 	mux.Handle("GET /audit", h.adminOnly(h.audit))
 	mux.Handle("GET /audit/prov", h.adminOnly(h.provAudit))
+	if h.pv != nil {
+		mux.Handle("GET /audit/provisioner", h.adminOnly(h.pvAudit))
+		mux.Handle("GET /audit/aka", h.adminOnly(h.akaAudit))
+	}
 
 	mux.Handle("GET /accounts", h.adminOnly(h.accountsPage))
 	mux.Handle("POST /accounts", h.adminOnly(h.createAccount))
@@ -161,30 +213,33 @@ func (h *Handler) Routes() http.Handler {
 // dashboardData はダッシュボードに渡す値。
 type dashboardData struct {
 	Status provapi.Status
-	// ProvError は Provisioning API から状態を取得できなかった場合の説明。
+	// PV は provisioner 経由のときの provisioner の状態（直接のときは nil）。
+	PV *pvapi.Status
+	// ProvError は接続先から状態を取得できなかった場合の説明。
 	ProvError string
 }
 
 func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 	var d dashboardData
+	if h.pv != nil {
+		// provisioner の状態は下流 2 つへの接続を確かめるので、毎回取り直す（PLMN マップの写しも更新する）。
+		st, err := h.pvInfo.refresh(r.Context())
+		if err != nil {
+			h.log.Warn("get provisioner status", "error", err)
+			d.ProvError = h.provErrorMessage(err)
+		} else {
+			d.PV = &st
+		}
+		h.render(w, r, http.StatusOK, "dashboard", "ダッシュボード", d)
+		return
+	}
 	st, err := h.prov.Status(r.Context())
 	if err != nil {
 		h.log.Warn("get provisioning api status", "error", err)
-		d.ProvError = provErrorMessage(err)
+		d.ProvError = h.provErrorMessage(err)
 	}
 	d.Status = st
 	h.render(w, r, http.StatusOK, "dashboard", "ダッシュボード", d)
-}
-
-// provErrorMessage は、Provisioning API の呼び出しに失敗したときに画面に出す説明を返す。
-func provErrorMessage(err error) string {
-	if provapi.IsUnavailable(err) {
-		if hint := provapi.Diagnose(err); hint != "" {
-			return hint
-		}
-		return "本PoCの Provisioning API に接続できません。"
-	}
-	return "本PoCの Provisioning API がエラーを返しました。"
 }
 
 func (h *Handler) notFound(w http.ResponseWriter, r *http.Request) {

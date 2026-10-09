@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/oyaguma3/web-gui-for-eapaka-radius/internal/provapi"
+	"github.com/oyaguma3/web-gui-for-eapaka-radius/internal/pvapi"
 	"github.com/oyaguma3/web-gui-for-eapaka-radius/internal/trace"
 )
 
@@ -48,6 +49,10 @@ var auditActionLabels = map[string]string{
 	"account.delete":          "アカウントの削除",
 	"account.password.reset":  "パスワードの再設定",
 	"account.password.change": "パスワードの変更",
+	// eapaka-node-provisioner の操作の記録への操作（BFF と provisioner の監査ログ）。
+	auditOperationRetry:   "操作のやり直し",
+	auditOperationDismiss: "操作を閉じる",
+	"operation.resume":    "自動のやり直し",
 }
 
 // record は、Provisioning API の操作が成功したことを BFF の監査ログに残す。
@@ -70,7 +75,27 @@ type auditRow struct {
 	Detail   string
 }
 
+// auditTabs は監査ログの種類のタブ（templates/partials/common.html の audit-tabs）。
+type auditTabs struct {
+	// Current は表示中のタブ（bff / provisioner / prov / aka）。
+	Current string
+	// Provisioner は provisioner 経由か、Aka は provisioner が aka-only-server を扱うか（タブを出す）。
+	Provisioner, Aka bool
+}
+
+// auditTabsFor は、表示中のタブ current の audit-tabs の値を作る。
+func (h *Handler) auditTabsFor(r *http.Request, current string) auditTabs {
+	t := auditTabs{Current: current, Provisioner: h.pv != nil}
+	if h.pv != nil {
+		// 写しを取得できなければ aka-only-server のタブも出す（開けば、扱わない設定かどうかが分かる）。
+		st, ok := h.pvInfo.get(r.Context())
+		t.Aka = !ok || st.Downstreams.Aka.Configured
+	}
+	return t
+}
+
 type auditData struct {
+	Tabs  auditTabs
 	Rows  []auditRow
 	Next  string
 	Error string
@@ -83,6 +108,9 @@ type auditData struct {
 func (h *Handler) audit(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	d := auditData{More: q.Get("before") != ""}
+	if !d.More {
+		d.Tabs = h.auditTabsFor(r, "bff")
+	}
 	status := http.StatusOK
 	me, _ := accountFrom(r.Context())
 	entries, next, err := h.auth.ListAudit(r.Context(), me, q.Get("before"), auditPerPage)
@@ -105,6 +133,7 @@ func (h *Handler) audit(w http.ResponseWriter, r *http.Request) {
 
 // provAuditData は provisioning-api の監査ログの画面に渡す値。
 type provAuditData struct {
+	Tabs  auditTabs
 	Rows  []provapi.AuditLogEntry
 	Next  string
 	Error string
@@ -117,11 +146,19 @@ type provAuditData struct {
 func (h *Handler) provAudit(w http.ResponseWriter, r *http.Request) {
 	before := r.URL.Query().Get("before")
 	d := provAuditData{More: before != ""}
+	if !d.More {
+		d.Tabs = h.auditTabsFor(r, "prov")
+	}
 	status := http.StatusOK
+	// provisioner 経由のときは、provisioner が中継する provisioning-api の監査ログ（/prov/audit-logs）を見る。
+	list := h.prov.ListAuditLogs
+	if h.pv != nil {
+		list = h.pv.ListProvAuditLogs
+	}
 	if before != "" && !streamIDPattern.MatchString(before) {
 		status, d.Error = http.StatusBadRequest, "続きの位置の指定が正しくありません。"
-	} else if l, err := h.prov.ListAuditLogs(r.Context(), provapi.AuditLogParams{Before: before, Limit: auditPerPage}); err != nil {
-		status, d.Error = monitoringErrorMessage(err, "監査ログの参照")
+	} else if l, err := list(r.Context(), provapi.AuditLogParams{Before: before, Limit: auditPerPage}); err != nil {
+		status, d.Error = h.monitoringErrorMessage(err, "監査ログの参照")
 		h.log.Warn("list provisioning api audit logs", "error", err)
 	} else {
 		d.Rows, d.Next = l.Items, l.NextBefore
@@ -131,6 +168,70 @@ func (h *Handler) provAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.render(w, r, status, "audit_prov", "監査ログ（provisioning-api）", d)
+}
+
+// pvAuditData は provisioner の監査ログの画面に渡す値。
+type pvAuditData struct {
+	Tabs  auditTabs
+	Rows  []pvapi.AuditLogEntry
+	Next  string
+	Error string
+	More  bool
+}
+
+// pvAudit は provisioner 自身の監査ログ（GET /audit-logs）の画面。管理者だけが使える。
+func (h *Handler) pvAudit(w http.ResponseWriter, r *http.Request) {
+	before := r.URL.Query().Get("before")
+	d := pvAuditData{More: before != ""}
+	if !d.More {
+		d.Tabs = h.auditTabsFor(r, "provisioner")
+	}
+	status := http.StatusOK
+	if before != "" && !streamIDPattern.MatchString(before) {
+		status, d.Error = http.StatusBadRequest, "続きの位置の指定が正しくありません。"
+	} else if l, err := h.pv.ListAuditLogs(r.Context(), provapi.AuditLogParams{Before: before, Limit: auditPerPage}); err != nil {
+		status, d.Error = h.apiErrorMessage(err, "")
+		h.log.Warn("list provisioner audit logs", "error", err)
+	} else {
+		d.Rows, d.Next = l.Items, l.NextBefore
+	}
+	if d.More && r.Header.Get("HX-Request") == "true" {
+		h.renderBlock(w, r, status, "audit_pv", "audit-pv-more", d)
+		return
+	}
+	h.render(w, r, status, "audit_pv", "監査ログ（provisioner）", d)
+}
+
+// akaAuditData は aka-only-server の監査ログの画面に渡す値。
+type akaAuditData struct {
+	Tabs  auditTabs
+	Rows  []pvapi.AkaAuditLogEntry
+	Next  string
+	Error string
+	More  bool
+}
+
+// akaAudit は aka-only-server の監査ログ（provisioner の中継）の画面。管理者だけが使える。
+func (h *Handler) akaAudit(w http.ResponseWriter, r *http.Request) {
+	before := r.URL.Query().Get("before")
+	d := akaAuditData{More: before != ""}
+	if !d.More {
+		d.Tabs = h.auditTabsFor(r, "aka")
+	}
+	status := http.StatusOK
+	if before != "" && !streamIDPattern.MatchString(before) {
+		status, d.Error = http.StatusBadRequest, "続きの位置の指定が正しくありません。"
+	} else if l, err := h.pv.ListAkaAuditLogs(r.Context(), provapi.AuditLogParams{Before: before, Limit: auditPerPage}); err != nil {
+		status, d.Error = h.apiErrorMessage(err, "")
+		h.log.Warn("list aka-only-server audit logs", "error", err)
+	} else {
+		d.Rows, d.Next = l.Items, l.NextBefore
+	}
+	if d.More && r.Header.Get("HX-Request") == "true" {
+		h.renderBlock(w, r, status, "audit_aka", "audit-aka-more", d)
+		return
+	}
+	h.render(w, r, status, "audit_aka", "監査ログ（aka-only-server）", d)
 }
 
 // actionLabel は監査ログの操作の名前を返す。

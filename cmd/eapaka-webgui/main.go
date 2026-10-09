@@ -128,7 +128,12 @@ func serve(ctx context.Context) error {
 	checkAtStartup(checkCtx, log, cfg, prov)
 	cancel()
 
-	h, err := web.New(web.Options{Log: log, Version: version, Prov: prov, Auth: authSvc})
+	opts := web.Options{Log: log, Version: version, Prov: prov, Auth: authSvc}
+	if cfg.AdminAPI == config.AdminAPIProvisioner {
+		// provisioner 経由では、加入者・状態・監査ログ・操作の記録の画面が provisioner だけの API を使う。
+		opts.PV = pvapi.New(prov)
+	}
+	h, err := web.New(opts)
 	if err != nil {
 		return err
 	}
@@ -137,6 +142,9 @@ func serve(ctx context.Context) error {
 		GetCertificate: cert.GetCertificate,
 		Handler:        h.Routes(),
 		Log:            log,
+		// 画面の 1 回の要求で接続先を何度か呼ぶことがあるので、呼び出しの上限より長くする
+		// （provisioner 経由では 1 回の呼び出しの上限が 60 秒）。
+		WriteTimeout: max(30*time.Second, cfg.AdminTimeout+30*time.Second),
 	})
 }
 

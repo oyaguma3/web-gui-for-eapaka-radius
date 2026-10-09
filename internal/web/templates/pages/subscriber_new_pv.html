@@ -1,0 +1,67 @@
+{{define "content" -}}
+<nav aria-label="breadcrumb"><ul><li><a href="/subscribers">加入者</a></li><li>登録</li></ul></nav>
+<h1>加入者の登録</h1>
+{{template "subscriber-new-form" .Data}}
+{{- end}}
+
+{{/* 既定の動作を切り替えるたびと、登録の失敗のたびに、htmx でこの部分を差し替える。
+     既定の動作が allow のときだけ、登録の前に確認ダイアログを出す（認可ポリシーの画面と同じ）。 */}}
+{{define "subscriber-new-form" -}}
+<div id="subscriber-new">
+  {{if .Error}}<p class="notice-error" role="alert">{{.Error}}{{template "op-link" .ErrorOperation}}</p>{{end}}
+  <form method="post" action="/subscribers" hx-post="/subscribers" hx-target="#subscriber-new" hx-swap="outerHTML" hx-disinherit="hx-confirm" autocomplete="off"
+    {{- if eq .Default "allow"}} hx-confirm="認可ポリシーの既定の動作が allow です。どのルールにも一致しない接続も許可します。登録してよろしいですか？"{{end}}>
+    <input type="hidden" name="idem" value="{{.IdemKey}}">
+    <label>
+      IMSI
+      <input name="imsi" value="{{.IMSI}}" required inputmode="numeric" pattern="[0-9]{15}" maxlength="15"{{if .Errors.imsi}} aria-invalid="true"{{end}}>
+      <small>{{or .Errors.imsi "15 桁の数字"}}</small>
+    </label>
+    <p>
+      <small>
+        鍵（Ki / OPc）の置き場所は、IMSI の PLMN から provisioner が決めます:
+        {{if .PLMNKnown}}{{template "plmn-map" .PLMNMap}}{{else}}<span class="muted">（PLMN マップを取得できませんでした）</span>{{end}}
+      </small>
+    </p>
+    <div class="grid">
+      <label>
+        Ki
+        <input name="ki" value="{{.Ki}}" required pattern="[0-9A-Fa-f]{32}" maxlength="32" spellcheck="false" class="mono"{{if .Errors.ki}} aria-invalid="true"{{end}}>
+        <small>{{or .Errors.ki "16 進 32 桁"}}</small>
+      </label>
+      <label>
+        OPc
+        <input name="opc" value="{{.OPc}}" required pattern="[0-9A-Fa-f]{32}" maxlength="32" spellcheck="false" class="mono"{{if .Errors.opc}} aria-invalid="true"{{end}}>
+        <small>{{or .Errors.opc "16 進 32 桁"}}</small>
+      </label>
+    </div>
+    <div class="grid">
+      <label>
+        AMF
+        <input name="amf" value="{{.AMF}}" required pattern="[0-9A-Fa-f]{4}" maxlength="4" spellcheck="false" class="mono"{{if .Errors.amf}} aria-invalid="true"{{end}}>
+        <small>{{or .Errors.amf "16 進 4 桁（既定 8000）"}}</small>
+      </label>
+      <label>
+        SQN
+        <input name="sqn" value="{{.SQN}}" required pattern="[0-9A-Fa-f]{12}" maxlength="12" spellcheck="false" class="mono"{{if .Errors.sqn}} aria-invalid="true"{{end}}>
+        <small>{{or .Errors.sqn "16 進 12 桁（既定 000000000000）"}}</small>
+      </label>
+    </div>
+    <fieldset>
+      <legend>認可ポリシーの既定の動作（どのルールにも一致しないとき）</legend>
+      <label>
+        <input type="radio" name="default" value="deny"{{if eq .Default "deny"}} checked{{end}} hx-post="/subscribers/new/form" hx-trigger="change">
+        deny（拒否）
+      </label>
+      <label>
+        <input type="radio" name="default" value="allow"{{if eq .Default "allow"}} checked{{end}} hx-post="/subscribers/new/form" hx-trigger="change">
+        allow（許可）
+      </label>
+      <small>認可ポリシーは加入者と一緒に作ります（ルールなし）。ルールは登録した後に認可ポリシーの画面で編集します。deny のままだと、ルールを足すまで認証は拒否されます。</small>
+    </fieldset>
+    <p><small>登録した後は、Ki と OPc は管理者だけが表示・変更できます。aka-only-server に鍵を置く加入者の SQN の増加タイプ（inc32）と平文HTTP の許可（しない）は aka-only-server の既定になり、詳細の画面で管理者が変えられます。</small></p>
+    <button type="submit">登録する</button>
+    <a href="/subscribers" role="button" class="secondary outline">やめる</a>
+  </form>
+</div>
+{{- end}}

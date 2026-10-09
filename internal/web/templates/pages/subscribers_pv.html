@@ -1,0 +1,49 @@
+{{define "content" -}}
+{{with .Data -}}
+<hgroup>
+  <h1>加入者</h1>
+  <p>{{if .Prefix}}IMSI が {{.Prefix}} で始まる加入者{{else}}すべての加入者{{end}}（鍵の置き場所が本PoCのものと aka-only-server のもの。鍵だけ・認可ポリシーだけの IMSI も含む）</p>
+</hgroup>
+{{if .Message}}<p class="notice-ok" role="status">{{.Message}}</p>{{end}}
+{{if .Error}}<p class="notice-error" role="alert">{{.Error}}</p>{{end}}
+
+<form method="get" action="/subscribers" role="search">
+  <input type="search" name="prefix" value="{{.Prefix}}" placeholder="IMSI（前方一致）" inputmode="numeric" pattern="[0-9]{1,15}" aria-label="IMSI（前方一致）">
+  <button type="submit">検索</button>
+</form>
+<p><a href="/subscribers/new" role="button">加入者を登録</a></p>
+
+{{if .Items -}}
+<figure>
+  <table>
+    <thead>
+      <tr><th scope="col">IMSI</th><th scope="col">鍵の置き場所</th><th scope="col">SQN</th><th scope="col">AMF</th><th scope="col">認可ポリシー</th><th scope="col">食い違い</th></tr>
+    </thead>
+    <tbody>
+      {{- range .Items}}
+      <tr>
+        <td><a href="/subscribers/{{.IMSI}}">{{.IMSI}}</a></td>
+        <td>{{keyStoreLabel .KeyStore}}</td>
+        {{- with .Key}}
+        <td><code>{{.SQN}}</code></td>
+        <td><code>{{.AMF}}</code></td>
+        {{- else}}
+        <td colspan="2" class="muted">鍵なし</td>
+        {{- end}}
+        <td>{{with .Policy}}既定 {{.Default}}、ルール {{len .Rules}} 件{{else}}<span class="muted">なし</span>{{end}}</td>
+        <td>{{range $i, $is := .Issues}}{{if $i}}<br>{{end}}<span class="notice-error">{{issueLabel $is}}</span>{{else}}-{{end}}</td>
+      </tr>
+      {{- end}}
+    </tbody>
+  </table>
+</figure>
+<nav class="pager">
+  {{if .Cursor}}<a href="/subscribers?prefix={{.Prefix}}">先頭へ</a>{{end}}
+  {{if .Next}}<a href="/subscribers?prefix={{.Prefix}}&amp;cursor={{.Next}}">次のページ</a>{{end}}
+</nav>
+<p class="muted"><small>一覧では、鍵を本PoCに置く加入者について aka-only-server 側を調べません（「置き場所でない方にも鍵があります」は詳細の画面でだけ分かることがあります）。</small></p>
+{{- else if not .Error -}}
+<p>該当する加入者はありません。</p>
+{{- end}}
+{{- end}}
+{{- end}}

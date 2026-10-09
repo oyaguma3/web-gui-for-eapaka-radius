@@ -28,6 +28,9 @@
         <li><a href="/clients">RADIUSクライアント</a></li>
         <li><a href="/policies">認可ポリシー</a></li>
         <li><a href="/sessions">セッション</a></li>
+        {{- if $.Provisioner}}
+        <li><a href="/operations">操作の記録</a></li>
+        {{- end}}
         {{- if .IsAdmin}}
         <li><a href="/audit">監査ログ</a></li>
         <li><a href="/accounts">アカウント</a></li>
