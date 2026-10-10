@@ -99,6 +99,8 @@ type policyData struct {
 	Subscriber string
 	Default    string
 	Rules      []ruleForm
+	// Status は保存済みの認可ポリシーの状態（active / suspended。0.3.0 以前の Provisioning API では空）。
+	Status string
 	// Dirty は、保存していない変更があるか。
 	Dirty   bool
 	Errors  fieldErrors
@@ -170,7 +172,7 @@ func (h *Handler) policy(w http.ResponseWriter, r *http.Request) {
 	p, err := h.prov.GetPolicy(r.Context(), imsi)
 	switch {
 	case err == nil:
-		d.Exists = true
+		d.Exists, d.Status = true, p.Status
 		d.Default, d.Rules = formFromPolicy(p)
 	case provapi.CauseOf(err) == provapi.CausePolicyNotFound:
 		// まだない。既定は Admin TUI と同じく deny でルールなし。保存すると作成する。
@@ -193,11 +195,12 @@ func numberRules(rules []ruleForm) {
 }
 
 // readPolicyForm は編集中のフォーム（ルールは同じ名前の項目の並び）を読む。
+// state（保存済みの状態）と dirty（保存していない変更があるか）は、画面に出し直すために持ち回る値。
 func readPolicyForm(r *http.Request) (policyData, error) {
 	pf := r.PostForm
 	d := policyData{
 		Default: pf.Get("default"), Exists: pf.Get("exists") == "1", Subscriber: pf.Get("subscriber"),
-		Errors: fieldErrors{},
+		Status: pf.Get("state"), Dirty: pf.Get("dirty") == "1", Errors: fieldErrors{},
 	}
 	nas, ssids, vlans, timeouts := pf["nas_id"], pf["ssids"], pf["vlan_id"], pf["session_timeout"]
 	if len(ssids) != len(nas) || len(vlans) != len(nas) || len(timeouts) != len(nas) || len(nas) > maxPolicyRules {
@@ -373,7 +376,7 @@ func (h *Handler) policySave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.record(r, auditPolicyPut, imsi, map[string]any{"created": created, "default": p.Default, "rules": len(p.Rules)})
-	saved := policyData{IMSI: imsi, Exists: true, Subscriber: d.Subscriber, Errors: fieldErrors{}}
+	saved := policyData{IMSI: imsi, Exists: true, Subscriber: d.Subscriber, Status: p.Status, Errors: fieldErrors{}}
 	saved.Default, saved.Rules = formFromPolicy(p)
 	saved.Message = "保存しました。すぐに認可に反映されます。"
 	if created {
@@ -395,4 +398,117 @@ func (h *Handler) policyDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	h.record(r, auditPolicyDelete, imsi, nil)
 	seeOther(w, r, "/policies?deleted="+imsi)
+}
+
+// ---- 停止・再開 ----
+
+// policyStatusLabel は加入者の状態（認可ポリシーの状態）の名前を返す。状態のない（0.3.0 以前の Provisioning API）
+// 場合は空文字列。Valkey を直接書き換えた不正な値は、そのまま見せる（Auth Server はこの加入者の認証を拒否する）。
+func policyStatusLabel(status string) string {
+	switch status {
+	case "":
+		return ""
+	case provapi.PolicyActive:
+		return "利用中"
+	case provapi.PolicySuspended:
+		return "停止中"
+	}
+	return "不明な状態（" + status + "）"
+}
+
+// formPolicyStatus は停止・再開のフォームの status（変更後の状態）を返す。active / suspended でなければ false。
+func formPolicyStatus(r *http.Request) (string, bool) {
+	v := r.PostForm.Get("status")
+	return v, v == provapi.PolicyActive || v == provapi.PolicySuspended
+}
+
+// policyStatusMessage は停止・再開が済んだときの文。
+func policyStatusMessage(status string) string {
+	if status == provapi.PolicySuspended {
+		return "停止しました。次の認証から拒否します（接続中のセッションは切れません）。"
+	}
+	return "再開しました。次の認証から認可ポリシーのルールに従います。"
+}
+
+// changePolicyStatus は加入者を停止・再開し（認可ポリシーの状態を変える）、BFF の監査ログに残す。
+// 認可ポリシーの画面と加入者の画面で共通。全員が使える（認可ポリシーの変更・削除と同じ）。
+func (h *Handler) changePolicyStatus(r *http.Request, imsi, status string) (provapi.Policy, *apiFailure) {
+	p, err := h.prov.SetPolicyStatus(r.Context(), imsi, status)
+	if err != nil {
+		f := h.apiError(err, notFoundMessage("IMSI "+imsi+" の認可ポリシー"))
+		h.log.Warn("set policy status", "error", err)
+		return provapi.Policy{}, &f
+	}
+	action := auditPolicyResume
+	if status == provapi.PolicySuspended {
+		action = auditPolicySuspend
+	}
+	h.record(r, action, imsi, nil)
+	return p, nil
+}
+
+// policyStatus は認可ポリシーの画面から停止・再開を行う。編集中のフォームも一緒に受け取り、保存していない
+// ルールの変更は保ったまま（保存はしない）状態だけを変えて返す。
+func (h *Handler) policyStatus(w http.ResponseWriter, r *http.Request) {
+	imsi, ok := h.policyIMSI(w, r)
+	if !ok {
+		return
+	}
+	if err := parseForm(w, r); err != nil {
+		h.renderError(w, r, http.StatusBadRequest, "入力を読み取れませんでした。")
+		return
+	}
+	status, ok := formPolicyStatus(r)
+	d, err := readPolicyForm(r)
+	if !ok || err != nil {
+		h.renderError(w, r, http.StatusBadRequest, "入力を読み取れませんでした。画面を開き直してください。")
+		return
+	}
+	d.IMSI = imsi
+	p, fail := h.changePolicyStatus(r, imsi, status)
+	if fail != nil {
+		d.Error, d.ErrorOperation = fail.Message, fail.OperationID
+		h.renderPolicy(w, r, fail.Status, d)
+		return
+	}
+	d.Exists, d.Status = true, p.Status
+	if !d.Dirty {
+		// 編集中の変更がなければ、最新の内容を出す（他の操作で変わっていても分かるように）。
+		d.Default, d.Rules = formFromPolicy(p)
+	}
+	d.Message = policyStatusMessage(p.Status)
+	h.renderPolicy(w, r, http.StatusOK, d)
+}
+
+// subscriberStatus は加入者の画面から停止・再開を行い、詳細の画面を返す。
+func (h *Handler) subscriberStatus(w http.ResponseWriter, r *http.Request) {
+	imsi, ok := h.subscriberIMSI(w, r)
+	if !ok {
+		return
+	}
+	if err := parseForm(w, r); err != nil {
+		h.renderError(w, r, http.StatusBadRequest, "入力を読み取れませんでした。")
+		return
+	}
+	status, ok := formPolicyStatus(r)
+	if !ok {
+		h.renderError(w, r, http.StatusBadRequest, "入力を読み取れませんでした。画面を開き直してください。")
+		return
+	}
+	p, fail := h.changePolicyStatus(r, imsi, status)
+	if h.pv != nil {
+		if fail != nil {
+			h.renderPVSubscriberAfter(w, r, imsi, fail.Status, fail, func(d *pvSubscriberData) {
+				d.Error, d.ErrorOperation = fail.Message, fail.OperationID
+			})
+			return
+		}
+		h.renderPVSubscriber(w, r, imsi, http.StatusOK, func(d *pvSubscriberData) { d.Message = policyStatusMessage(p.Status) })
+		return
+	}
+	if fail != nil {
+		h.renderSubscriber(w, r, imsi, fail.Status, func(d *subscriberData) { d.Error = fail.Message })
+		return
+	}
+	h.renderSubscriber(w, r, imsi, http.StatusOK, func(d *subscriberData) { d.Message = policyStatusMessage(p.Status) })
 }

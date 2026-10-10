@@ -189,6 +189,9 @@ type Subscriber struct {
 	Key *Key `json:"key"`
 	// Policy は認可ポリシー。ない場合は nil（Issues に POLICY_MISSING）。
 	Policy *provapi.PolicyPut `json:"policy"`
+	// Status は加入者の状態（認可ポリシーの状態。provisioner 0.3.0 から）。認可ポリシーがない、または 0.2.0 以前の
+	// provisioner では空。
+	Status string `json:"status"`
 	// Issues は食い違い。正常なら空。
 	Issues []Issue `json:"issues"`
 }

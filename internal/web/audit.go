@@ -26,6 +26,8 @@ const (
 	auditClientSecretRead   = "client.secret.read"
 	auditPolicyPut          = "policy.put"
 	auditPolicyDelete       = "policy.delete"
+	auditPolicySuspend      = "policy.suspend"
+	auditPolicyResume       = "policy.resume"
 )
 
 // auditActionLabels は監査ログの操作の名前。
@@ -40,6 +42,10 @@ var auditActionLabels = map[string]string{
 	auditClientSecretRead:   "共有シークレットの表示",
 	auditPolicyPut:          "認可ポリシーの保存",
 	auditPolicyDelete:       "認可ポリシーの削除",
+	auditPolicySuspend:      "加入者の停止",
+	auditPolicyResume:       "加入者の再開",
+	// provisioner は、停止・再開の応答の状態が読めなかった場合にこの名前で残す。
+	"policy.status.update": "加入者の状態の変更",
 	// provisioning-api の監査ログでは、認可ポリシーの保存を作成と変更に分けて記録する。
 	"policy.create":           "認可ポリシーの作成",
 	"policy.update":           "認可ポリシーの変更",

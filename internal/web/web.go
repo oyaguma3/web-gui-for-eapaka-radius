@@ -48,6 +48,7 @@ type ProvAPI interface {
 	GetPolicy(ctx context.Context, imsi string) (provapi.Policy, error)
 	PutPolicy(ctx context.Context, imsi string, p provapi.PolicyPut) (provapi.Policy, bool, error)
 	DeletePolicy(ctx context.Context, imsi string) error
+	SetPolicyStatus(ctx context.Context, imsi, status string) (provapi.Policy, error)
 
 	ListAuditLogs(ctx context.Context, p provapi.AuditLogParams) (provapi.AuditLogList, error)
 	ListSessions(ctx context.Context, p provapi.SessionParams) (provapi.SessionList, error)
@@ -164,6 +165,8 @@ func (h *Handler) Routes() http.Handler {
 	}
 	// Ki / OPc の取得は、provisioner も Provisioning API と同じ形で返すので共通。
 	mux.Handle("POST /subscribers/{imsi}/keys", h.adminOnly(h.subscriberKeys))
+	// 停止・再開（認可ポリシーの状態）も、provisioner は Provisioning API と同じ形で中継するので共通（画面の返し方だけ違う）。
+	mux.Handle("POST /subscribers/{imsi}/status", h.authed(h.subscriberStatus))
 
 	mux.Handle("GET /clients", h.authed(h.clients))
 	mux.Handle("POST /clients", h.adminOnly(h.clientCreate))
@@ -178,6 +181,7 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("POST /policies/{imsi}/edit", h.authed(h.policyEdit))
 	mux.Handle("POST /policies/{imsi}", h.authed(h.policySave))
 	mux.Handle("POST /policies/{imsi}/delete", h.authed(h.policyDelete))
+	mux.Handle("POST /policies/{imsi}/status", h.authed(h.policyStatus))
 
 	mux.Handle("GET /sessions", h.authed(h.sessions))
 

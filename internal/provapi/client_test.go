@@ -210,6 +210,9 @@ func TestOperator(t *testing.T) {
 	if _, _, err := env.client.PutPolicy(t.Context(), "001010000000001", PolicyPut{}); !errors.Is(err, ErrNoOperator) {
 		t.Errorf("put policy without operator: err = %v", err)
 	}
+	if _, err := env.client.SetPolicyStatus(t.Context(), "001010000000001", PolicySuspended); !errors.Is(err, ErrNoOperator) {
+		t.Errorf("set policy status without operator: err = %v", err)
+	}
 	// 形式に合わない操作者も送らない。
 	ctx := WithOperator(t.Context(), "bad user")
 	if err := env.client.DeleteSubscriber(ctx, "001010000000001"); !errors.Is(err, ErrInvalidOperator) {
@@ -316,6 +319,15 @@ func TestRequestBodies(t *testing.T) {
 	}
 	if r1 := rules[1].(map[string]any); r1["vlanId"] != "100" || r1["sessionTimeout"] != float64(3600) {
 		t.Errorf("rule with vlan/timeout: %v", r1)
+	}
+
+	// 停止・再開: 状態だけを送る。
+	if _, err := env.client.SetPolicyStatus(ctx, "001010000000001", PolicySuspended); err != nil {
+		t.Fatal(err)
+	}
+	if got.method != "PUT" || got.path != "/admin/v1/policies/001010000000001/status" || got.ctype != "application/json" ||
+		len(got.body) != 1 || got.body["status"] != "suspended" {
+		t.Errorf("set policy status: %+v", got)
 	}
 
 	// クエリ: ゼロ値は送らない。

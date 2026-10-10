@@ -1,6 +1,6 @@
 # web-gui-for-eapaka-radius 設計概要
 
-- 状態: 初版（2026-10-08。§9 のステップ 1〜5）と、§10 の 2（本PoCの Provisioning API 0.3.0 の監査ログ・セッションの参照。2026-10-09）を実装済み。§10 の 3（eapaka-node-provisioner）は設計・実装済み（同リポジトリ）。§10 の 4（eapaka-node-provisioner 経由の接続。§12）も実装済み（2026-10-10）
+- 状態: 初版（2026-10-08。§9 のステップ 1〜5）と、§10 の 2（本PoCの Provisioning API 0.3.0 の監査ログ・セッションの参照。2026-10-09）を実装済み。§10 の 3（eapaka-node-provisioner）は設計・実装済み（同リポジトリ）。§10 の 4（eapaka-node-provisioner 経由の接続。§12）も実装済み（2026-10-10）。§10 の 5（加入者の停止・再開。§13）も実装済み（2026-10-10）
 - 対象: BFF と Web GUI（コマンド名 `eapaka-webgui`）。
 - 関連:
   - 管理対象のシステムと Provisioning API: eapaka-radius-server-poc リポジトリの `docs/D-13_Provisioning_API詳細設計書_r*.md`、`docs/openapi/provisioning-api.yaml`
@@ -63,6 +63,7 @@ aka 版 §4.1 と同じ（最初の管理者・管理者・一般ユーザー。
 | 加入者の削除 | ○ | ○ | ○ |
 | 認可ポリシーの一覧・閲覧 | ○ | ○ | ○ |
 | 認可ポリシーの作成・変更・削除 | ○ | ○ | ○ |
+| 加入者の停止・再開（認可ポリシーの状態。§13） | ○ | ○ | ○ |
 | RADIUSクライアントの一覧・閲覧（共有シークレット以外） | ○ | ○ | ○ |
 | RADIUSクライアントの登録・変更・削除 | ○ | ○ | × |
 | RADIUSクライアントの共有シークレットの閲覧 | ○ | ○ | × |
@@ -190,6 +191,7 @@ aka 版と同じく 5 つのステップに分け、各ステップの終わり�
 | 2 | 本PoCの Provisioning API の拡張（D-13 §10 の候補）と、本 GUI への反映。eapaka-node-provisioner の設計の前に、Provisioning API の作法を確立しておく。**実装済み（2026-10-09）**: 監査ログの参照（`GET /audit-logs`）、セッションの参照（`GET /sessions`、`/status` の `sessionCount`）。Provisioning API 0.3.0（本PoC D-13 r6） |
 | 3 | eapaka-node-provisioner（本PoCの Provisioning API と aka-only-server の管理API を組み合わせて操作する統合API）の設計。**実装済み（2026-10-10）**: eapaka-node-provisioner リポジトリ（API 0.2.0） |
 | 4 | 本 GUI から eapaka-node-provisioner 経由でも操作できるようにする（§12）。**実装済み（2026-10-10）** |
+| 5 | 加入者の停止・再開（本PoCの認可ポリシーの状態。Provisioning API 0.4.0、provisioner API 0.3.0）を、直接・provisioner 経由のどちらでも扱う（§13）。**実装済み（2026-10-10）** |
 
 2 で扱わなかったもの（2026-10-09 決定）:
 
@@ -283,3 +285,26 @@ provisioner の API（provisioner の `docs/openapi/provisioner-api.yaml` 0.2.0�
 - BFF の監査ログ（§12.3 の 13）: provisioner は成功の応答に操作の記録の ID を返さないので、BFF の監査ログには ID を入れず、鍵の置き場所（`keyStore`）を入れる。provisioner の監査ログとはトレースID で突き合わせられ、そちらに操作の記録の ID がある。操作の記録のやり直し・閉じるは、対象を操作の ID として記録する。
 - 応答の時間の上限: provisioner 経由では 1 回の呼び出しの上限を 60 秒にしたので、BFF の HTTPS サーバーの `WriteTimeout`（要求を受けてから応答を書き終えるまで。既定 30 秒）を、呼び出しの上限＋30 秒にした（30 秒を超えた応答が書き出せず、ブラウザに HTTP/2 のエラーとして届くことを手元の確認で見つけた）。あわせて、接続先への接続の確立は 10 秒で打ち切る（接続できない相手を、呼び出し全体の上限まで待たない）。
 
+
+## 13. 加入者の停止・再開
+
+外部 OSS/BSS のサンプル実装（eapaka-ossbss-sample。同リポジトリの設計概要 §8・§15）のため、本PoCの認可ポリシーに状態（`status`: `active` / `suspended`）が加わった（Provisioning API 0.4.0。本PoC `dbd97f5`）。停止中の加入者の認証は、鍵の置き場所によらず Auth Server が拒否する。変更は専用の `PUT /policies/{imsi}/status` で行い、認可ポリシーの PUT（全体の置き換え）では状態は変わらない。eapaka-node-provisioner も同じパスで中継し（API 0.3.0。`e96390d`）、加入者の統合リソースに `status` を加えた。同じ本PoCを操作する GUI で状態が見えないと混乱するため、本 GUI も直接・provisioner 経由のどちらでも状態の表示と停止・再開を扱う（eapaka-ossbss-sample の設計概要 §15 の 5）。
+
+### 13.1 決定事項（2026-10-10。確認事項 1〜7 をすべて推奨案で合意）
+
+| # | 事項 | 決定 |
+|---|---|---|
+| 1 | 使える人 | 全員（一般ユーザーを含む）。一般ユーザーも認可ポリシーの変更・削除（認証を拒否する操作）ができるため、それと揃える |
+| 2 | 操作の場所 | 認可ポリシーの編集画面と、加入者の詳細画面（直接・provisioner 経由）。状態の印は認可ポリシーにあるが、利用者には加入者の操作に見えるため。一覧からの一括の操作は作らない |
+| 3 | 編集中のルールとの関係 | 認可ポリシーの画面で停止・再開しても、保存していないルールの変更は残す（編集中のフォームを一緒に送り、画面を返すときに戻す。ルールは保存しない） |
+| 4 | `Idempotency-Key` | 送らない。同じ状態にする操作は何度送っても結果が同じで、認可ポリシーの PUT でも送っていないため |
+| 5 | 状態が分からないとき | 状態のない応答（0.3.0 以前の provisioning-api、0.2.0 以前の provisioner）では、状態の欄に「接続先が停止・再開に対応していません」と出し、ボタンを出さない。Valkey を直接書き換えた不正な値は「不明な状態（値）」と出し、停止・再開の両方のボタンを出す（Auth Server はその加入者の認証を拒否する） |
+| 6 | ダッシュボード | 停止中の件数は出さない（本PoC・provisioner とも件数を返さない） |
+| 7 | 直接接続の加入者の一覧 | 状態を出さない（一覧は認可ポリシーを取得していないため。1 件ごとに取得すると重い）。加入者の詳細と、認可ポリシーの一覧・編集で出す。provisioner 経由の加入者の一覧では出す（provisioner が返す） |
+
+### 13.2 実装の作り
+
+- `provapi.Client.SetPolicyStatus`（`PUT /policies/{imsi}/status`、操作者が必要）を、直接・provisioner 経由の両方で使う（provisioner は Provisioning API と同じ形で中継する）。`provapi.Policy.Status` と `pvapi.Subscriber.Status` に状態が入る。
+- 画面: `POST /policies/{imsi}/status`（認可ポリシーの画面。編集中のフォームと、隠し項目 `state`（保存済みの状態）・`dirty`（保存していない変更があるか）を一緒に受け取る）と、`POST /subscribers/{imsi}/status`（加入者の詳細。接続先によって返す画面が違う）。どちらも本文の `status`（`active` / `suspended`）を送り、確認ダイアログを出す。状態とボタンは共通の部品 `policy-status`（`templates/partials/common.html`）で描く。
+- BFF の監査ログ: `policy.suspend`（加入者の停止）/ `policy.resume`（加入者の再開）。provisioning-api と provisioner の監査ログにも同じ名前で残り、トレースID で突き合わせられる（provisioner は、応答の状態が読めない場合に `policy.status.update` で残す）。
+- 効くのは次の認証からで、接続中のセッションは切れない（確認ダイアログと完了の文で伝える）。

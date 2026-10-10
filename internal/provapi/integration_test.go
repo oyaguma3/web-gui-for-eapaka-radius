@@ -389,7 +389,8 @@ func TestIntegrationPolicies(t *testing.T) {
 	if err != nil || !created {
 		t.Fatalf("create: %v, %v", created, err)
 	}
-	want := Policy{IMSI: imsi, Default: put.Default, Rules: put.Rules}
+	// 新しい認可ポリシーは active（0.4.0 以降の provisioning-api）。
+	want := Policy{IMSI: imsi, Default: put.Default, Rules: put.Rules, Status: PolicyActive}
 	if !policyEqual(p, want) {
 		t.Errorf("created = %+v", p)
 	}
@@ -404,14 +405,37 @@ func TestIntegrationPolicies(t *testing.T) {
 		t.Errorf("list: %+v, %v", list, err)
 	}
 
-	// 置き換え（ルールを空にする）。
+	// 停止。変更後の認可ポリシーを返し、監査ログに残る。
+	ctx, tid = opCtx(t)
+	p, err = c.SetPolicyStatus(ctx, imsi, PolicySuspended)
+	if err != nil || p.Status != PolicySuspended || p.Default != PolicyDeny || len(p.Rules) != 2 {
+		t.Errorf("suspend: %+v, %v", p, err)
+	}
+	if e := checkAudit(t, tid, "policy suspended"); e.Msg != "" && e.Details != "status: active -> suspended" {
+		t.Errorf("audit suspend = %+v", e)
+	}
+	if list, err := c.ListPolicies(t.Context(), ListParams{Prefix: imsi}); err != nil || len(list.Items) != 1 || list.Items[0].Status != PolicySuspended {
+		t.Errorf("list after suspend: %+v, %v", list, err)
+	}
+
+	// 置き換え（ルールを空にする）。状態は変わらない（停止のまま）。
 	ctx, tid = opCtx(t)
 	p, created, err = c.PutPolicy(ctx, imsi, PolicyPut{Default: PolicyAllow})
-	if err != nil || created || p.Default != PolicyAllow || p.Rules == nil || len(p.Rules) != 0 {
+	if err != nil || created || p.Default != PolicyAllow || p.Rules == nil || len(p.Rules) != 0 || p.Status != PolicySuspended {
 		t.Errorf("replace: %+v, %v, %v", p, created, err)
 	}
 	if e := checkAudit(t, tid, "policy updated"); e.Msg != "" && e.Details != "default: deny -> allow, rules: changed (2 -> 0)" {
 		t.Errorf("audit replace = %+v", e)
+	}
+
+	// 再開。不正な値は 400。
+	ctx, tid = opCtx(t)
+	if p, err = c.SetPolicyStatus(ctx, imsi, PolicyActive); err != nil || p.Status != PolicyActive {
+		t.Errorf("resume: %+v, %v", p, err)
+	}
+	checkAudit(t, tid, "policy resumed")
+	if _, err := c.SetPolicyStatus(ctx, imsi, "paused"); !isStatus(err, 400) {
+		t.Errorf("bad status: %v", err)
 	}
 
 	// ルールの項目の誤りは、ルールと SSID の位置つきで返る。
@@ -435,10 +459,19 @@ func TestIntegrationPolicies(t *testing.T) {
 	if apiErr, ok := errors.AsType[*Error](err); !ok || apiErr.Status != 404 || apiErr.Problem.Cause != CausePolicyNotFound {
 		t.Errorf("get after delete: err = %v", err)
 	}
+	// 認可ポリシーがなければ停止できない。
+	if _, err := c.SetPolicyStatus(ctx, imsi, PolicySuspended); CauseOf(err) != CausePolicyNotFound {
+		t.Errorf("suspend after delete: err = %v", err)
+	}
+}
+
+func isStatus(err error, status int) bool {
+	apiErr, ok := errors.AsType[*Error](err)
+	return ok && apiErr.Status == status
 }
 
 func policyEqual(a, b Policy) bool {
-	return a.IMSI == b.IMSI && a.Default == b.Default &&
+	return a.IMSI == b.IMSI && a.Default == b.Default && a.Status == b.Status &&
 		slices.EqualFunc(a.Rules, b.Rules, func(x, y PolicyRule) bool {
 			return x.NASID == y.NASID && x.VLANID == y.VLANID && x.SessionTimeout == y.SessionTimeout &&
 				slices.Equal(x.AllowedSSIDs, y.AllowedSSIDs)

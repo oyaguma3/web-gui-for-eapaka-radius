@@ -19,11 +19,20 @@
     {{- else if eq .Subscriber "no"}}本PoCには登録されていません <span class="muted">（接続方式01 の加入者のように鍵を aka-only-server が持つ場合は、認可ポリシーだけでよい）</span> <a href="/subscribers/new?imsi={{.IMSI}}">加入者を登録</a>
     {{- else}}確かめられませんでした{{end}}
   </p>
+  {{if .Exists -}}
+  <p>
+    状態:
+    {{template "policy-status" (dict "IMSI" .IMSI "Status" .Status "URL" (printf "/policies/%s/status" .IMSI) "Target" "#policy" "Include" "#policy-form" "Provisioner" .Provisioner)}}
+    {{- if .Dirty}}<br><small class="muted">停止・再開しても、保存していないルールの変更はそのまま残ります（保存はしません）。</small>{{end}}
+  </p>
+  {{- end}}
 
-  <form hx-post="/policies/{{.IMSI}}" hx-target="#policy" hx-swap="outerHTML" hx-disinherit="hx-confirm" autocomplete="off"
+  <form id="policy-form" hx-post="/policies/{{.IMSI}}" hx-target="#policy" hx-swap="outerHTML" hx-disinherit="hx-confirm" autocomplete="off"
     {{- if eq .Default "allow"}} hx-confirm="既定の動作が allow です。どのルールにも一致しない接続も許可します。保存してよろしいですか？"{{end}}>
     {{if .Exists}}<input type="hidden" name="exists" value="1">{{end}}
     <input type="hidden" name="subscriber" value="{{.Subscriber}}">
+    <input type="hidden" name="state" value="{{.Status}}">
+    {{if .Dirty}}<input type="hidden" name="dirty" value="1">{{end}}
     <fieldset>
       <legend>既定の動作（どのルールにも一致しないとき）</legend>
       <label>
@@ -77,7 +86,7 @@
     {{- end}}
     <p><button type="button" class="secondary" name="op" value="add" hx-post="/policies/{{.IMSI}}/edit">ルールを追加</button></p>
     <button type="submit">保存</button>
-    <small>保存すると、この内容で認可ポリシー全体を置き換えます。すぐに認可に反映されます。</small>
+    <small>保存すると、この内容で認可ポリシー全体を置き換えます。すぐに認可に反映されます。状態（停止中かどうか）は変わりません。</small>
   </form>
 
   {{if .Exists -}}

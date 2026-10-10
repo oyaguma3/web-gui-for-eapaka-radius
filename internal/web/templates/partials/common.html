@@ -43,3 +43,28 @@
 {{- if .}}{{range $i, $e := .}}{{if $i}}、{{end}}<code>{{$e.PLMN}}</code> → {{keyStoreLabel $e.KeyStore}}{{end}}。それ以外の PLMN は本PoC
 {{- else}}なし（すべての加入者の鍵を本PoCに置く）{{end -}}
 {{- end}}
+
+{{/* policy-status は加入者の状態（認可ポリシーの状態）と、停止・再開のボタン。引数は dict で、IMSI、Status（空なら接続先が
+     停止・再開に対応していない）、URL（送り先）、Target（差し替える要素）、Include（一緒に送るフォーム。空なら送らない）、
+     Provisioner（eapaka-node-provisioner 経由か。対応していない場合の説明に使う）。 */}}
+{{define "policy-status" -}}
+{{- if not .Status -}}
+<span class="muted">接続先が停止・再開に対応していません（本PoCの provisioning-api 0.4.0 以降{{if .Provisioner}}、eapaka-node-provisioner 0.3.0 以降{{end}}で使えます）。</span>
+{{- else -}}
+<strong{{if ne .Status "active"}} class="status-suspended"{{end}}>{{policyStatusLabel .Status}}</strong>
+{{- if eq .Status "suspended"}} <small class="muted">（認証を拒否します）</small>
+{{- else if ne .Status "active"}} <small class="muted">（認証を拒否します。停止または再開で正しい状態に戻せます）</small>{{end}}
+<span class="status-ops">
+  {{- if ne .Status "suspended"}}
+  <button type="button" class="contrast outline" hx-post="{{.URL}}" hx-vals='{"status":"suspended"}' hx-target="{{.Target}}" hx-swap="outerHTML"
+    {{- with .Include}} hx-include="{{.}}"{{end}}
+    hx-confirm="加入者 {{.IMSI}} を停止します。次の認証から拒否します（接続中のセッションは切れません）。よろしいですか？">停止する</button>
+  {{- end}}
+  {{- if ne .Status "active"}}
+  <button type="button" class="secondary" hx-post="{{.URL}}" hx-vals='{"status":"active"}' hx-target="{{.Target}}" hx-swap="outerHTML"
+    {{- with .Include}} hx-include="{{.}}"{{end}}
+    hx-confirm="加入者 {{.IMSI}} を再開します。次の認証から認可ポリシーのルールに従います。よろしいですか？">再開する</button>
+  {{- end}}
+</span>
+{{- end}}
+{{- end}}

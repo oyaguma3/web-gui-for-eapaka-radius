@@ -130,3 +130,13 @@ nav.tabs a[aria-current="page"] {
   border-bottom: 0.2rem solid var(--pico-primary);
   border-radius: 0;
 }
+
+/* 加入者の状態（停止中・不明な状態）と、停止・再開のボタン */
+.status-suspended {
+  color: var(--pico-del-color);
+}
+.status-ops button {
+  width: auto;
+  margin: 0 0 0 0.5rem;
+  padding: 0.25rem 0.75rem;
+}

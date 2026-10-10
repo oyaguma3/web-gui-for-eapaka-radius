@@ -37,6 +37,8 @@ var funcs = template.FuncMap{
 	"issueHelp":  issueHelp,
 	// keyStoreLabel は鍵の置き場所の名前。
 	"keyStoreLabel": keyStoreLabel,
+	// policyStatusLabel は加入者の状態（認可ポリシーの状態）の名前。
+	"policyStatusLabel": policyStatusLabel,
 	// opStatusLabel、opKindLabel、stepLabel、stepStateLabel は操作の記録の状態・種類・手順の名前。
 	"opStatusLabel":  opStatusLabel,
 	"opKindLabel":    opKindLabel,

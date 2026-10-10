@@ -31,8 +31,9 @@ type fakeProv struct {
 	lastSubUpdate    provapi.SubscriberUpdate
 	lastClientUpdate provapi.RADIUSClientUpdate
 	lastPolicyPut    provapi.PolicyPut
-	// putPolicyErr を設定すると、PutPolicy だけがそのエラーを返す。
+	// putPolicyErr を設定すると、PutPolicy だけがそのエラーを返す。setStatusErr は SetPolicyStatus だけ。
 	putPolicyErr error
+	setStatusErr error
 	// auditLogs は provisioning-api の監査ログ（新しい順）。sessions はアクティブセッション（新しい順）。
 	auditLogs []provapi.AuditLogEntry
 	sessions  []provapi.Session
@@ -346,10 +347,27 @@ func (f *fakeProv) PutPolicy(ctx context.Context, imsi string, p provapi.PolicyP
 	if err := cmp.Or(f.err, f.putPolicyErr); err != nil {
 		return provapi.Policy{}, false, err
 	}
-	_, exists := f.policies[imsi]
-	saved := provapi.Policy{IMSI: imsi, Default: p.Default, Rules: p.Rules}
+	// provisioning-api と同じく、置き換えでは状態を変えない（新規は active）。
+	prev, exists := f.policies[imsi]
+	saved := provapi.Policy{IMSI: imsi, Default: p.Default, Rules: p.Rules, Status: cmp.Or(prev.Status, provapi.PolicyActive)}
 	f.policies[imsi] = saved
 	return saved, !exists, nil
+}
+
+func (f *fakeProv) SetPolicyStatus(ctx context.Context, imsi, status string) (provapi.Policy, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.call(ctx, "SetPolicyStatus:"+status)
+	if err := cmp.Or(f.err, f.setStatusErr); err != nil {
+		return provapi.Policy{}, err
+	}
+	p, ok := f.policies[imsi]
+	if !ok {
+		return provapi.Policy{}, notFound(provapi.CausePolicyNotFound)
+	}
+	p.Status = status
+	f.policies[imsi] = p
+	return p, nil
 }
 
 func (f *fakeProv) DeletePolicy(ctx context.Context, imsi string) error {

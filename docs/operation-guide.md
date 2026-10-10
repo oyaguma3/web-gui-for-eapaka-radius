@@ -33,7 +33,7 @@ GUI はインターネットに直接公開せず、VPN 越しに使う。ホス
 | 本PoCの Provisioning API に直接（既定） | BFF と本PoCだけで動く。加入者（鍵）と認可ポリシーは別々に扱う |
 | eapaka-node-provisioner（以下「provisioner」）経由 | 鍵を本PoCに置く加入者と aka-only-server に置く加入者を同じ画面で扱い、加入者の登録・削除で認可ポリシーも一緒に扱う。provisioner（専用の Valkey を含む）が別に要る |
 
-本PoCの provisioning-api は 0.3.0 以降（本PoCの main の e2a5a8c 以降）を使う。0.2.0 でも使えるが、セッションの画面と監査ログの「provisioning-api」のタブは「対応していません」と出て使えず、ダッシュボードにセッション数が出ない。
+本PoCの provisioning-api は 0.4.0 以降（本PoCの main の dbd97f5 以降）を使う。0.3.0 でも使えるが、加入者の停止・再開ができない（状態の欄に「接続先が停止・再開に対応していません」と出る）。0.2.0 では、さらにセッションの画面と監査ログの「provisioning-api」のタブは「対応していません」と出て使えず、ダッシュボードにセッション数が出ない。provisioner 経由で停止・再開を使うには、eapaka-node-provisioner 0.3.0 以降（main の e96390d 以降）も要る。
 
 本PoCの Admin TUI とは、原則として同時に使わない。同時に使った場合、他の操作で削除・登録された対象は、画面にその旨を出す。
 
@@ -199,7 +199,7 @@ docker compose exec eapaka-webgui /eapaka-webgui check-admin
 ```
 接続先: https://provisioning-api:9444/admin/v1
 クライアント証明書のフィンガープリント: b3de2164...d3fdb8
-接続できました。provisioning-api 0.3.0（ノード simwifi、加入者 0、RADIUSクライアント 0、認可ポリシー 0）
+接続できました。provisioning-api 0.4.0（ノード simwifi、加入者 0、RADIUSクライアント 0、認可ポリシー 0）
 ```
 
 `接続できました。` と出れば準備は終わりである。接続できない場合は、原因の見当が表示される（9 章）。
@@ -627,7 +627,7 @@ docker compose exec eapaka-webgui /eapaka-webgui check-admin
    接続先: https://eapaka-provisioner:9446/admin/v1（provisioner）
    クライアント証明書のフィンガープリント: e7cb4ad2...68ab435
    接続できました。provisioner dev
-     本PoCの Provisioning API: 0.3.0（ノード simwifi、加入者 0）
+     本PoCの Provisioning API: 0.4.0（ノード simwifi、加入者 0）
      aka-only-server: dev（加入者 0）
      vector-gateway の AVクライアント: ID 1（vector-gateway）
      PLMN マップ: 44020=aka

@@ -259,7 +259,16 @@ type Policy struct {
 	IMSI    string       `json:"imsi"`
 	Default string       `json:"default"`
 	Rules   []PolicyRule `json:"rules"`
+	// Status は加入者の状態（Provisioning API 0.4.0 から）。PolicyActive か PolicySuspended。
+	// 0.3.0 以前の provisioning-api では空。Valkey を直接書き換えた不正な値は、そのまま入る（Auth Server は認証を拒否する）。
+	Status string `json:"status,omitempty"`
 }
+
+// 加入者の状態（Policy.Status）。停止中の加入者の認証は、鍵の置き場所によらず Auth Server が拒否する。
+const (
+	PolicyActive    = "active"
+	PolicySuspended = "suspended"
+)
 
 // PolicyPut は認可ポリシーの内容（全体を置き換える）。
 type PolicyPut struct {
@@ -299,6 +308,18 @@ func (c *Client) PutPolicy(ctx context.Context, imsi string, p PolicyPut) (polic
 		return Policy{}, false, fmt.Errorf("provisioning api PUT %s: decode response: %w", resp.Request.URL.Path, err)
 	}
 	return policy, resp.StatusCode == http.StatusCreated, nil
+}
+
+// SetPolicyStatus は加入者を停止する（PolicySuspended）、または再開する（PolicyActive）。変更後の認可ポリシーを返す。
+// 認可ポリシーの状態だけを変える（Provisioning API 0.4.0 の PUT /policies/{imsi}/status。eapaka-node-provisioner も同じ形で中継する）。
+// 認可ポリシーがなければ POLICY_NOT_FOUND。効くのは次の認証からで、接続中のセッションは切れない。操作者が必要。
+func (c *Client) SetPolicyStatus(ctx context.Context, imsi, status string) (Policy, error) {
+	return c.call[Policy](ctx, request{
+		method: http.MethodPut, path: []string{"policies", imsi, "status"},
+		body: struct {
+			Status string `json:"status"`
+		}{status}, needOperator: true,
+	})
 }
 
 // DeletePolicy は認可ポリシーを削除する。操作者が必要。

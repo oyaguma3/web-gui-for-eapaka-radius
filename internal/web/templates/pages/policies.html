@@ -24,12 +24,13 @@
 <figure>
   <table>
     <thead>
-      <tr><th scope="col">IMSI</th><th scope="col">既定の動作</th><th scope="col">ルール</th></tr>
+      <tr><th scope="col">IMSI</th><th scope="col">状態</th><th scope="col">既定の動作</th><th scope="col">ルール</th></tr>
     </thead>
     <tbody>
       {{- range .Items}}
       <tr>
         <td><a href="/policies/{{.IMSI}}">{{.IMSI}}</a></td>
+        <td>{{if not .Status}}-{{else if eq .Status "active"}}{{policyStatusLabel .Status}}{{else}}<strong class="status-suspended">{{policyStatusLabel .Status}}</strong>{{end}}</td>
         <td>{{.Default}}</td>
         <td>{{len .Rules}} 件</td>
       </tr>

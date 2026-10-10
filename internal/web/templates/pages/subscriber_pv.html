@@ -42,6 +42,12 @@
           {{- else}}なし（<a href="/policies/{{.Sub.IMSI}}">作成する</a>）{{end -}}
         </td>
       </tr>
+      {{- if .Sub.Policy}}
+      <tr>
+        <th scope="row">状態</th>
+        <td>{{template "policy-status" (dict "IMSI" .Sub.IMSI "Status" .Sub.Status "URL" (printf "/subscribers/%s/status" .Sub.IMSI) "Target" "#subscriber" "Provisioner" true)}}</td>
+      </tr>
+      {{- end}}
       <tr><th scope="row">セッション</th><td><a href="/sessions?imsi={{.Sub.IMSI}}">この加入者のセッションを表示</a></td></tr>
     </tbody>
   </table>

@@ -17,7 +17,7 @@
 <figure>
   <table>
     <thead>
-      <tr><th scope="col">IMSI</th><th scope="col">鍵の置き場所</th><th scope="col">SQN</th><th scope="col">AMF</th><th scope="col">認可ポリシー</th><th scope="col">食い違い</th></tr>
+      <tr><th scope="col">IMSI</th><th scope="col">鍵の置き場所</th><th scope="col">SQN</th><th scope="col">AMF</th><th scope="col">認可ポリシー</th><th scope="col">状態</th><th scope="col">食い違い</th></tr>
     </thead>
     <tbody>
       {{- range .Items}}
@@ -31,6 +31,7 @@
         <td colspan="2" class="muted">鍵なし</td>
         {{- end}}
         <td>{{with .Policy}}既定 {{.Default}}、ルール {{len .Rules}} 件{{else}}<span class="muted">なし</span>{{end}}</td>
+        <td>{{if not .Status}}-{{else if eq .Status "active"}}{{policyStatusLabel .Status}}{{else}}<strong class="status-suspended">{{policyStatusLabel .Status}}</strong>{{end}}</td>
         <td>{{range $i, $is := .Issues}}{{if $i}}<br>{{end}}<span class="notice-error">{{issueLabel $is}}</span>{{else}}-{{end}}</td>
       </tr>
       {{- end}}

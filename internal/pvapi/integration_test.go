@@ -104,7 +104,7 @@ func TestIntegrationSubscriberPoC(t *testing.T) {
 		t.Fatal(err)
 	}
 	if sub.IMSI != imsi || sub.KeyStore != KeyStorePoC || sub.Key == nil || sub.Key.AMF != "b9b9" || sub.Key.SQN != "000000000000" ||
-		sub.Policy == nil || sub.Policy.Default != "deny" || len(sub.Policy.Rules) != 1 || len(sub.Issues) != 0 {
+		sub.Policy == nil || sub.Policy.Default != "deny" || len(sub.Policy.Rules) != 1 || sub.Status != provapi.PolicyActive || len(sub.Issues) != 0 {
 		t.Errorf("create = %+v", sub)
 	}
 	// 同じ Idempotency-Key で送り直すと、最初の結果が返る（二重に作らない）。
@@ -132,6 +132,25 @@ func TestIntegrationSubscriberPoC(t *testing.T) {
 		Policy: &provapi.PolicyPut{Default: "allow", Rules: []provapi.PolicyRule{}}}, newKey())
 	if err != nil || upd.Key.AMF != "8000" || upd.Key.SQN != "000000000040" || upd.Policy.Default != "allow" || len(upd.Policy.Rules) != 0 {
 		t.Errorf("update = %+v, %v", upd, err)
+	}
+
+	// 停止・再開は認可ポリシーの中継（provapi のクライアントのまま）。加入者の status に出る。
+	if p, err := prov.SetPolicyStatus(ctx, imsi, provapi.PolicySuspended); err != nil || p.Status != provapi.PolicySuspended {
+		t.Errorf("suspend = %+v, %v", p, err)
+	}
+	if got, err := pv.GetSubscriber(ctx, imsi); err != nil || got.Status != provapi.PolicySuspended {
+		t.Errorf("get after suspend = %+v, %v", got, err)
+	}
+	if list, err := pv.ListSubscribers(ctx, provapi.ListParams{Prefix: imsi}); err != nil || len(list.Items) != 1 || list.Items[0].Status != provapi.PolicySuspended {
+		t.Errorf("list after suspend = %+v, %v", list, err)
+	}
+	// ポリシーを置き換えても停止のまま。
+	if upd, err := pv.UpdateSubscriber(ctx, imsi, SubscriberUpdate{Policy: &provapi.PolicyPut{Default: "deny", Rules: []provapi.PolicyRule{}}}, newKey()); err != nil ||
+		upd.Status != provapi.PolicySuspended {
+		t.Errorf("update while suspended = %+v, %v", upd, err)
+	}
+	if p, err := prov.SetPolicyStatus(ctx, imsi, provapi.PolicyActive); err != nil || p.Status != provapi.PolicyActive {
+		t.Errorf("resume = %+v, %v", p, err)
 	}
 	if keys, err := prov.GetSubscriberKeys(ctx, imsi); err != nil || keys.Ki != "465b5ce8b199b49faa5f0a2ee238a6bc" {
 		t.Errorf("keys = %+v, %v", keys, err)
