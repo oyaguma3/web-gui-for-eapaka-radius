@@ -1,8 +1,8 @@
 # 運用ガイド
 
 - 対象: web-gui-for-eapaka-radius（BFF + Web GUI。コマンド名 `eapaka-webgui`）を導入・運用する人。
-- 関連: [README](../README.md)、[設計概要](design-overview.md)、[画面仕様](screen-spec.md)、本PoC（eapaka-radius-server-poc）の `docs/B-02_アプリケーションデプロイ手順書_r*.md` §15（Provisioning API の有効化）と `docs/D-13_Provisioning_API詳細設計書_r*.md`
-- 本書の手順は、2026-10-08 に検証用の実機（Debian 13、Docker Engine と compose プラグイン、Tailscale）で実行して確かめた。
+- 関連: [README](../README.md)、[設計概要](design-overview.md)、[画面仕様](screen-spec.md)、本PoC（eapaka-radius-server-poc）の `docs/B-02_アプリケーションデプロイ手順書_r*.md` §15（Provisioning API の有効化）と `docs/D-13_Provisioning_API詳細設計書_r*.md`、eapaka-node-provisioner の `docs/operation-guide.md`
+- 本書の手順は、2026-10-08 に検証用の実機（Debian 13、Docker Engine と compose プラグイン、Tailscale）で実行して確かめた。11 章（eapaka-node-provisioner 経由）は 2026-10-10 に同じ実機で確かめた。
 
 ## 1. 構成
 
@@ -25,6 +25,13 @@
 | 加入者、RADIUSクライアント、認可ポリシー | 本PoC側（BFF は保存しない） |
 
 GUI はインターネットに直接公開せず、VPN 越しに使う。ホスト OS は Debian を主対象とし、必要なのは Docker Engine と compose プラグインと git だけである。1 つの BFF が扱うのは、本PoCの 1 ノード（provisioning-api 1 つ）である。
+
+接続先は 2 通りから選ぶ（`.env` の `EAPAKA_WEBGUI_ADMIN_API`）。2 章から 9 章は、本PoCの Provisioning API に直接つなぐ場合（既定）の手順である。eapaka-node-provisioner 経由の場合は 11 章を参照。
+
+| 接続先 | 内容 |
+|---|---|
+| 本PoCの Provisioning API に直接（既定） | BFF と本PoCだけで動く。加入者（鍵）と認可ポリシーは別々に扱う |
+| eapaka-node-provisioner（以下「provisioner」）経由 | 鍵を本PoCに置く加入者と aka-only-server に置く加入者を同じ画面で扱い、加入者の登録・削除で認可ポリシーも一緒に扱う。provisioner（専用の Valkey を含む）が別に要る |
 
 本PoCの provisioning-api は 0.3.0 以降（本PoCの main の e2a5a8c 以降）を使う。0.2.0 でも使えるが、セッションの画面と監査ログの「provisioning-api」のタブは「対応していません」と出て使えず、ダッシュボードにセッション数が出ない。
 
@@ -517,9 +524,11 @@ docker compose exec eapaka-webgui /eapaka-webgui check-admin
 
 | 変数 | 既定値 | 内容 |
 |---|---|---|
-| `COMPOSE_FILE` | `compose.yaml:compose.eapaka-prov.yaml` | 別ホストなら `compose.yaml` |
+| `COMPOSE_FILE` | `compose.yaml:compose.eapaka-prov.yaml` | 別ホストなら `compose.yaml`。同一ホストの provisioner 経由なら `compose.yaml:compose.eapaka-provisioner.yaml`（11 章） |
 | `PROVISIONING_SHARED_NETWORK` | `eapaka-prov` | 同一ホストの本PoCが作る共有ネットワークの名前（本PoC側と同じにする） |
-| `EAPAKA_WEBGUI_ADMIN_URL` | `https://provisioning-api:9444/admin/v1` | Provisioning API のベース URL |
+| `PROVISIONER_SHARED_NETWORK` | `eapaka-provisioner` | 同一ホストの provisioner が作る共有ネットワークの名前（provisioner 側と同じにする） |
+| `EAPAKA_WEBGUI_ADMIN_API` | `provisioning-api` | 接続先の種類（`provisioning-api` / `provisioner`。11 章） |
+| `EAPAKA_WEBGUI_ADMIN_URL` | （空: 接続先の種類ごとの同一ホストの URL） | 接続先のベース URL。空なら `https://provisioning-api:9444/admin/v1`（provisioner 経由なら `https://eapaka-provisioner:9446/admin/v1`） |
 | `EAPAKA_WEBGUI_ADMIN_CLIENT_KEY` | （空: クライアント証明書のファイルから読む） | クライアント証明書の秘密鍵を別のファイルにした場合の、コンテナ内のパス（`/certs/...`） |
 | `EAPAKA_WEBGUI_VALKEY_PASSWORD` | （必須） | BFF 専用の Valkey のパスワード |
 | `EAPAKA_WEBGUI_INITIAL_ADMIN_ID` | （必須） | 最初の管理者のユーザーID（英数字と `.` `_` `@` `-` の 64 文字まで） |
@@ -537,3 +546,206 @@ docker compose exec eapaka-webgui /eapaka-webgui check-admin
 | `EAPAKA_WEBGUI_VERSION` | `dev` | 画面に出すバージョン（ビルド時に埋め込む） |
 
 コンテナの中では、このほかに `EAPAKA_WEBGUI_ADDR`（`:8445`）、`EAPAKA_WEBGUI_VALKEY_ADDR`（`valkey:6379`）、`EAPAKA_WEBGUI_ADMIN_CLIENT_CERT`（`/certs/admin-client.pem`）、`EAPAKA_WEBGUI_ADMIN_SERVER_CERT`（`/certs/admin-server.pem`）を使う。compose を使わずに動かす場合は、これらも指定する。
+
+## 11. eapaka-node-provisioner 経由でつなぐ
+
+`.env` の `EAPAKA_WEBGUI_ADMIN_API=provisioner` にすると、BFF は本PoCの Provisioning API ではなく provisioner に接続する（設計概要 §12）。provisioner は、本PoCの Provisioning API と aka-only-server の管理API を組み合わせて加入者を扱う統合API で、RADIUSクライアント・認可ポリシー・セッションは Provisioning API と同じ形で中継する。
+
+```
+[ブラウザ] ──HTTPS──> BFF ──mTLS──> provisioner ──mTLS──> provisioning-api（本PoC）
+                                         │        └─mTLS──> aka-only-server の管理API
+                                   Valkey（provisioner 専用）
+```
+
+- BFF の管理クライアントの登録先は provisioner（provisioner の `.env` の `PROVISIONER_ADMIN_CLIENTS`）になり、BFF が信頼するサーバー証明書は provisioner のもの（provisioner の `server-cert` の出力）になる。本PoCの `PROVISIONING_API_ADMIN_CLIENTS` への BFF の登録は要らない（provisioner が自分の証明書で本PoCに接続する）。
+- アカウント・権限・BFF の監査ログはそのまま使える（BFF の Valkey は接続先によらない）。
+- 1 回の呼び出しの上限は 60 秒（直接のときは 10 秒）。provisioner の加入者の登録は、補償を含めて下流を何度か呼ぶため。
+
+### 11.1 前提
+
+- provisioner を、provisioner の運用ガイド 2 章（同一ホスト）または 3 章（別ホスト）の手順で導入し、`check-downstream` で本PoCと aka-only-server に接続できることを確かめておく。provisioner の `PROVISIONER_ADMIN_CLIENTS` には、11.2 で BFF の証明書を登録する（provisioner は管理クライアントが 1 つもないと起動しないので、先に登録してから起動してもよい）。
+- 同じホストでは、BFF は provisioner が作る共有ネットワーク（既定の名前は `eapaka-provisioner`）に参加し、`https://eapaka-provisioner:9446/admin/v1` で接続する。そのための設定が `compose.eapaka-provisioner.yaml` である。provisioner を先に起動する。
+
+### 11.2 新しく導入する場合（同一ホスト）
+
+以下では、BFF と provisioner のリポジトリを同じディレクトリに並べて置く（`~/web-gui-for-eapaka-radius/`、`~/eapaka-node-provisioner/`）。
+
+1. 2.2 のとおり取得して `.env` を作り、次の 2 行を書き換える。`EAPAKA_WEBGUI_ADMIN_URL` は空のままにする（provisioner の同一ホストの URL になる）。
+
+   ```
+   COMPOSE_FILE=compose.yaml:compose.eapaka-provisioner.yaml
+   EAPAKA_WEBGUI_ADMIN_API=provisioner
+   ```
+
+2. 2.3 のとおりクライアント証明書を作る（`COMPOSE_FILE=compose.yaml` を付けて実行する）。標準エラーに出る行のうち、`PROVISIONER_ADMIN_CLIENTS=` の行を使う。
+
+   ```
+   接続先の .env に次の値を登録してください（他の登録があればカンマ区切りで加える）:
+     本PoCの Provisioning API に直接つなぐ場合（本PoCの .env）:
+   PROVISIONING_API_ADMIN_CLIENTS=bff-01=e7cb4ad2...68ab435
+     eapaka-node-provisioner 経由でつなぐ場合（provisioner の .env）:
+   PROVISIONER_ADMIN_CLIENTS=bff-01=e7cb4ad2...68ab435
+   ```
+
+3. provisioner 側: `.env` の `PROVISIONER_ADMIN_CLIENTS` にその値を書き（ほかの管理クライアントがあればカンマで区切って加える）、provisioner を作り直す。続けて、provisioner のサーバー証明書を BFF の `certs/admin-server.pem` に取り出す。
+
+   ```bash
+   cd ~/eapaka-node-provisioner
+   ```
+
+   ```bash
+   docker compose up -d
+   ```
+
+   ```bash
+   docker compose exec -T eapaka-provisioner /eapaka-provisioner server-cert > ../web-gui-for-eapaka-radius/certs/admin-server.pem
+   ```
+
+4. BFF 側: 2.5 のとおり `certs/` の所有者を直し、起動して確かめる。
+
+   ```bash
+   cd ~/web-gui-for-eapaka-radius
+   ```
+
+   ```bash
+   sudo chown 65532:65532 certs/*.pem
+   ```
+
+   ```bash
+   sudo chmod 600 certs/*.pem
+   ```
+
+   ```bash
+   docker compose up -d
+   ```
+
+   ```bash
+   docker compose exec eapaka-webgui /eapaka-webgui check-admin
+   ```
+
+   ```
+   接続先: https://eapaka-provisioner:9446/admin/v1（provisioner）
+   クライアント証明書のフィンガープリント: e7cb4ad2...68ab435
+   接続できました。provisioner dev
+     本PoCの Provisioning API: 0.3.0（ノード simwifi、加入者 0）
+     aka-only-server: dev（加入者 0）
+     vector-gateway の AVクライアント: ID 1（vector-gateway）
+     PLMN マップ: 44020=aka
+   ```
+
+   provisioner に接続できない、または接続先が provisioner でない（`EAPAKA_WEBGUI_ADMIN_URL` が provisioning-api を指している等）場合は、原因の見当を出してエラーで終わる。provisioner の先の下流（本PoC、aka-only-server）に接続できない場合は、その旨と provisioner が返す原因の見当を表示する（このときはエラーにしない。provisioner 側の `check-downstream` で確かめる）。
+
+### 11.3 直接接続から切り替える
+
+直接接続で動いている BFF を provisioner 経由にする場合は、次を行う。BFF のクライアント証明書（`certs/admin-client.pem`）とアカウントはそのまま使える。
+
+1. provisioner 側: 11.2 の 3 のとおり、BFF のフィンガープリント（`check-admin` が表示する値）を `PROVISIONER_ADMIN_CLIENTS` に登録して作り直し、サーバー証明書を取り出す。BFF の `certs/admin-server.pem` は所有者が UID 65532 なので、`sudo cp` で上書きして所有者を直す。
+
+   ```bash
+   cd ~/eapaka-node-provisioner
+   ```
+
+   ```bash
+   docker compose exec -T eapaka-provisioner /eapaka-provisioner server-cert > ~/provisioner-server.pem
+   ```
+
+   ```bash
+   cd ~/web-gui-for-eapaka-radius
+   ```
+
+   ```bash
+   sudo cp ~/provisioner-server.pem certs/admin-server.pem
+   ```
+
+   ```bash
+   sudo chown 65532:65532 certs/admin-server.pem
+   ```
+
+   ```bash
+   sudo chmod 600 certs/admin-server.pem
+   ```
+
+2. BFF の `.env` を次のようにする。`EAPAKA_WEBGUI_ADMIN_URL` に provisioning-api の URL が書いてあれば、空にする（または provisioner の URL にする）。
+
+   ```
+   COMPOSE_FILE=compose.yaml:compose.eapaka-provisioner.yaml
+   EAPAKA_WEBGUI_ADMIN_API=provisioner
+   EAPAKA_WEBGUI_ADMIN_URL=
+   ```
+
+3. 作り直して確かめる（11.2 の 4 と同じ表示になる）。BFF のコンテナは本PoCの共有ネットワークから外れ、provisioner の共有ネットワークだけに参加する。
+
+   ```bash
+   docker compose up -d
+   ```
+
+   ```bash
+   docker compose exec eapaka-webgui /eapaka-webgui check-admin
+   ```
+
+- 切り替えた後は、本PoCの `.env` の `PROVISIONING_API_ADMIN_CLIENTS` から BFF の登録を外してよい（provisioner の登録は残す）。直接接続に戻すときは、もう一度登録する（11.5）。
+- ログイン中のセッションは、作り直しても続く。
+
+### 11.4 別ホストの provisioner につなぐ
+
+provisioner が別のホストにある場合は、provisioner 側で API を VPN 側のアドレスで公開し、サーバー証明書の SAN にそのアドレスを入れる（provisioner の運用ガイド 3.4）。以下では、provisioner のホストの VPN 側のアドレスを `100.64.0.30` とする。
+
+1. provisioner 側の 3.4 を行い、作り直したサーバー証明書を取り出して、BFF の `certs/admin-server.pem` に置く（11.3 の 1 と同じく `sudo cp` と所有者の変更）。
+2. BFF の `.env` を次のようにして、作り直す。
+
+   ```
+   COMPOSE_FILE=compose.yaml
+   EAPAKA_WEBGUI_ADMIN_API=provisioner
+   EAPAKA_WEBGUI_ADMIN_URL=https://100.64.0.30:9446/admin/v1
+   ```
+
+   ```bash
+   docker compose up -d
+   ```
+
+3. `check-admin` で確かめる（接続先が `https://100.64.0.30:9446/admin/v1（provisioner）` になる）。
+
+### 11.5 直接接続に戻す
+
+1. 本PoCの `.env` の `PROVISIONING_API_ADMIN_CLIENTS` に BFF のフィンガープリントがなければ登録し、provisioning-api を作り直す（2.4）。
+2. BFF の `certs/admin-server.pem` を本PoCのサーバー証明書（`deployments/certs/provisioning/server.pem`）に戻す（`sudo cp` と所有者の変更）。
+3. BFF の `.env` を直接接続の値に戻し（同一ホストなら次のとおり）、作り直して `check-admin` で確かめる。
+
+   ```
+   COMPOSE_FILE=compose.yaml:compose.eapaka-prov.yaml
+   EAPAKA_WEBGUI_ADMIN_API=provisioning-api
+   EAPAKA_WEBGUI_ADMIN_URL=
+   ```
+
+   ```bash
+   docker compose up -d
+   ```
+
+画面は直接接続のものに戻る（メニューの「操作の記録」はなくなる）。provisioner の操作の記録は provisioner に残る。
+
+### 11.6 画面と運用の違い
+
+画面の詳細は画面仕様の 11 章を参照。
+
+- **加入者**: 鍵の置き場所（本PoC / aka-only-server）は、IMSI の PLMN と provisioner の PLMN マップで決まる（選べない）。登録では認可ポリシーの既定の動作も選び（ルールは登録後に認可ポリシーの画面で編集）、削除では認可ポリシーも消える。2 つのノードの食い違い（鍵がない、認可ポリシーがない等）は、一覧と詳細に出る。
+- **操作の記録**: 加入者の登録・変更・削除が途中で失敗して元に戻せなかった操作は、provisioner が後で自動でやり直す。「操作の記録」の画面で状況を確かめられ、管理者が「やり直す」「閉じる」を行える（判断の仕方は provisioner の運用ガイド 6 章）。完了していない操作がある IMSI は、加入者の登録・変更・削除と認可ポリシーの保存・削除ができない（その操作へのリンクつきで断られる）。
+- **監査ログ**: 「provisioner」「aka-only-server」のタブが加わる（provisioner が aka-only-server を扱わない設定なら「aka-only-server」は出ない）。BFF の操作の `trace_id` は、provisioner と下流の監査ログのトレースID と同じになる。provisioning-api と aka-only-server の監査ログの管理クライアントは provisioner の識別名になる。
+- **ほかの操作手段との併用**: provisioner の同じ IMSI の排他は、provisioner を通る操作どうしでだけ効く。provisioner 経由で使う間は、同じ加入者を本PoCの Admin TUI や aka-only-server の管理 GUI で操作しない（provisioner の運用ガイド 1.2）。
+- **バックアップ**: provisioner 経由でも、BFF のバックアップは 7 章のとおり。provisioner と下流のバックアップは、それぞれの手順で取る。
+
+### 11.7 障害時の確認
+
+まず `check-admin` で provisioner への接続と、provisioner から下流への接続を確かめる。9 章の表のうち、provisioning-api を provisioner に読み替えたものに加え、次を確かめる。
+
+| 症状・表示 | 確認すること |
+|---|---|
+| `network eapaka-provisioner declared as external, but could not be found` | provisioner を先に起動しているか。provisioner 側の `PROVISIONER_SHARED_NETWORK` と BFF の `.env` の `PROVISIONER_SHARED_NETWORK` が一致しているか。別ホストなら `COMPOSE_FILE=compose.yaml` にする。クライアント証明書を作るとき（2.3）は `COMPOSE_FILE=compose.yaml` を付ける |
+| 「provisioner が BFF のクライアント証明書を受け付けませんでした」 | provisioner の `.env` の `PROVISIONER_ADMIN_CLIENTS` に、`check-admin` が表示するフィンガープリントが登録されているか。登録した後に provisioner を作り直したか（`docker compose up -d`）。provisioner のログの `admin client certificate rejected` |
+| 「provisioner のサーバー証明書が、設定した証明書（EAPAKA_WEBGUI_ADMIN_SERVER_CERT）と一致しません」 | `certs/admin-server.pem` が provisioner の `server-cert` の出力と同じか（provisioner のサーバー証明書を作り直した後は置き直す） |
+| 「接続先は provisioner ではないようです」「接続先は provisioner のようです」 | `EAPAKA_WEBGUI_ADMIN_API` と `EAPAKA_WEBGUI_ADMIN_URL` の組み合わせ（直接接続の URL が残っていないか） |
+| ダッシュボードで「provisioner から接続できません」（本PoC / aka-only-server） | provisioner の先の下流の問題。表示される原因の見当と、provisioner の `check-downstream`（provisioner の運用ガイド 10 章） |
+| 「provisioner から aka-only-server に接続できません。」（加入者の登録などで 503） | 同上。書き込みを始める前に断っているので、何も変わっていない |
+| 「同じ IMSI に完了していない操作が残っています」 | 表示されるリンクから操作の記録を開き、やり直すか、下流を直して閉じる（11.6） |
+| 「… への操作が途中で失敗し、元に戻せませんでした」 | provisioner が自動でやり直す。操作の記録で状況を確かめる。下流が直らないまま 24 時間たつと「失敗」になり、手での対応が要る |
+| 「同じ IMSI の操作が処理中です」 | ほかの操作（別の画面、別の管理クライアント）が同じ IMSI を処理している。少し待ってからやり直す |
+

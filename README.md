@@ -10,6 +10,13 @@
                                 Valkey（BFF 専用）
 ```
 
+接続先は設定（`EAPAKA_WEBGUI_ADMIN_API`）で選べます。既定は本PoCの Provisioning API に直接つなぎます。[eapaka-node-provisioner](https://github.com/oyaguma3/eapaka-node-provisioner)（本PoCの Provisioning API と aka-only-server の管理API を組み合わせる統合API）経由にすると、鍵を本PoCに置く加入者と aka-only-server に置く加入者を同じ画面で扱い、加入者の登録・削除で認可ポリシーも一緒に扱えます（[運用ガイド](docs/operation-guide.md)の 11 章）。
+
+```
+[ブラウザ] ──HTTPS──> BFF + Web GUI ──mTLS──> eapaka-node-provisioner ──> provisioning-api（本PoC）
+                                                                      └─> aka-only-server の管理API
+```
+
 個人利用・検証用途の GUI です。インターネットに直接公開せず、VPN（Tailscale、WireGuard など）越しに使うことを前提にしています。aka-only-server の管理 GUI（[web-gui-for-aka-only-server](https://github.com/oyaguma3/web-gui-for-aka-only-server)）と作りをそろえていて、同じホストで並べて動かせます。
 
 ## 特徴
@@ -30,6 +37,9 @@
 | 認可ポリシー | 一覧（IMSI の前方一致）、作成・編集（ルールの追加・削除・並べ替え）、削除 |
 | セッション | アクティブセッションの一覧（IMSI での絞り込み。読み出しだけ） |
 | 監査ログ | BFF の監査ログ（ログイン、アカウント、BFF を通した Provisioning API の操作）と、provisioning-api の監査ログ（タブで切り替え）（管理者） |
+| 操作の記録 | eapaka-node-provisioner 経由のときだけ。2 つのノードにまたがる加入者の操作のうち、完了していないものの一覧と手順ごとの状態。やり直す・閉じる（管理者） |
+
+eapaka-node-provisioner 経由のときは、ダッシュボードに provisioner と下流 2 つの状態を出し、加入者の画面で鍵の置き場所と 2 つのノードの食い違いを示し、監査ログに provisioner と aka-only-server のタブを加えます（[画面仕様](docs/screen-spec.md)の 11 章）。
 | アカウント | アカウントの作成・削除・パスワード再設定（管理者） |
 
 ## 導入
@@ -54,11 +64,13 @@ docker compose exec eapaka-webgui /eapaka-webgui check-admin
 
 6. ブラウザで開き、最初の管理者でログインして、日常の操作に使うアカウントを作る。
 
+eapaka-node-provisioner 経由でつなぐ場合は、BFF のクライアント証明書を provisioner の `PROVISIONER_ADMIN_CLIENTS` に登録し、provisioner のサーバー証明書を `certs/admin-server.pem` に置いて、`.env` を `EAPAKA_WEBGUI_ADMIN_API=provisioner`、`COMPOSE_FILE=compose.yaml:compose.eapaka-provisioner.yaml` にします（運用ガイドの 11 章。直接接続からの切り替えと戻し方も同じ章にあります）。
+
 ## ドキュメント
 
 | ファイル | 内容 |
 |---|---|
-| [docs/operation-guide.md](docs/operation-guide.md) | 導入（同一ホスト / 別ホスト）、ブラウザ向け HTTPS（自己署名 / Tailscale）、公開範囲、アカウントの運用、ログと監査ログ、バックアップ、更新、障害時の確認、環境変数 |
+| [docs/operation-guide.md](docs/operation-guide.md) | 導入（同一ホスト / 別ホスト）、ブラウザ向け HTTPS（自己署名 / Tailscale）、公開範囲、アカウントの運用、ログと監査ログ、バックアップ、更新、障害時の確認、環境変数、eapaka-node-provisioner 経由でつなぐ（導入、直接接続からの切り替え、別ホスト、戻し方） |
 | [docs/design-overview.md](docs/design-overview.md) | 設計概要（アカウントと権限、セッション、Provisioning API との連携、データモデル、今後の計画） |
 | [docs/screen-spec.md](docs/screen-spec.md) | 画面仕様と権限ごとの表示差 |
 
@@ -93,7 +105,7 @@ GitHub Actions（`.github/workflows/ci.yml`）で、push と pull request のた
 | ジョブ | 内容 |
 |---|---|
 | テスト | gofmt の確認、`go vet`、race 検出つきのテスト（Valkey の結合テストを含む） |
-| イメージと compose の設定 | Docker イメージのビルド、compose の設定の検査（同一ホスト・別ホスト） |
+| イメージと compose の設定 | Docker イメージのビルド、compose の設定の検査（同一ホスト・別ホスト・provisioner 経由） |
 | Provisioning API との契約テスト | 本PoCを固定のコミット（ci.yml の `POC_REF`）で取得して provisioning-api をビルド・起動し、`gen-client-cert` で作った証明書を登録して契約テストを実行する |
 | eapaka-node-provisioner との契約テスト | provisioner と、その下流（本PoCの provisioning-api、aka-only-server）を固定のコミット（`PROVISIONER_REF` / `POC_REF` / `AKA_REF`）で取得してビルド・起動し、provisioner を相手に契約テストを実行する |
 

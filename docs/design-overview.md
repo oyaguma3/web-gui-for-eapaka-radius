@@ -1,6 +1,6 @@
 # web-gui-for-eapaka-radius 設計概要
 
-- 状態: 初版（2026-10-08。§9 のステップ 1〜5）と、§10 の 2（本PoCの Provisioning API 0.3.0 の監査ログ・セッションの参照。2026-10-09）を実装済み。§10 の 3（eapaka-node-provisioner）は設計・実装済み（同リポジトリ）。§10 の 4（eapaka-node-provisioner 経由の接続。§12）を設計中（確認事項あり）
+- 状態: 初版（2026-10-08。§9 のステップ 1〜5）と、§10 の 2（本PoCの Provisioning API 0.3.0 の監査ログ・セッションの参照。2026-10-09）を実装済み。§10 の 3（eapaka-node-provisioner）は設計・実装済み（同リポジトリ）。§10 の 4（eapaka-node-provisioner 経由の接続。§12）も実装済み（2026-10-10）
 - 対象: BFF と Web GUI（コマンド名 `eapaka-webgui`）。
 - 関連:
   - 管理対象のシステムと Provisioning API: eapaka-radius-server-poc リポジトリの `docs/D-13_Provisioning_API詳細設計書_r*.md`、`docs/openapi/provisioning-api.yaml`
@@ -189,7 +189,7 @@ aka 版と同じく 5 つのステップに分け、各ステップの終わり�
 | 1 | 本 GUI（eapaka-webgui）の初版（§9） |
 | 2 | 本PoCの Provisioning API の拡張（D-13 §10 の候補）と、本 GUI への反映。eapaka-node-provisioner の設計の前に、Provisioning API の作法を確立しておく。**実装済み（2026-10-09）**: 監査ログの参照（`GET /audit-logs`）、セッションの参照（`GET /sessions`、`/status` の `sessionCount`）。Provisioning API 0.3.0（本PoC D-13 r6） |
 | 3 | eapaka-node-provisioner（本PoCの Provisioning API と aka-only-server の管理API を組み合わせて操作する統合API）の設計。**実装済み（2026-10-10）**: eapaka-node-provisioner リポジトリ（API 0.2.0） |
-| 4 | 本 GUI から eapaka-node-provisioner 経由でも操作できるようにする（§12） |
+| 4 | 本 GUI から eapaka-node-provisioner 経由でも操作できるようにする（§12）。**実装済み（2026-10-10）** |
 
 2 で扱わなかったもの（2026-10-09 決定）:
 
@@ -205,7 +205,7 @@ aka 版と同じく 5 つのステップに分け、各ステップの終わり�
 | `docs/screen-spec.md` | 画面仕様と権限ごとの表示差 |
 | `docs/operation-guide.md` | 導入（BFF の登録を含む）、アカウント運用、ブラウザ向け HTTPS、公開範囲、バックアップ、障害時の確認、環境変数（手順は検証機で実行して確かめたもの） |
 
-## 12. eapaka-node-provisioner 経由の接続（設計中）
+## 12. eapaka-node-provisioner 経由の接続
 
 ### 12.1 方針（2026-10-10 決定）
 
@@ -257,7 +257,7 @@ provisioner の API（provisioner の `docs/openapi/provisioner-api.yaml` 0.2.0�
 
 1. 設定、provisioner 用の API クライアント（加入者・状態・操作の記録・監査ログ）、`check-admin` と `gen-client-cert` の対応、契約テストと CI … 実装済み（2026-10-10。§12.5）
 2. 画面（ダッシュボード、加入者、操作の記録、監査ログのタブ、エラーの文） … 実装済み（2026-10-10。§12.6。画面は `docs/screen-spec.md` §11）
-3. compose・運用ガイド・README・画面仕様、simwifi での通しの確認（BFF → provisioner → 本PoC と aka-only-server、eapaka_test での認証）
+3. compose・運用ガイド・README・画面仕様、simwifi での通しの確認（BFF → provisioner → 本PoC と aka-only-server、eapaka_test での認証） … 完了（2026-10-10）。同一ホスト用の `compose.eapaka-provisioner.yaml`、運用ガイド 11 章。simwifi で、直接接続で動いている BFF を provisioner 経由に切り替え、手元のブラウザ（Tailscale 越し）から RADIUSクライアントと 2 つの置き場所の加入者を登録して eapaka_test で認証（両方 Accept）、認可ポリシーの deny と削除で Reject、操作の記録（409 とリンク、やり直し）、監査ログの 4 つのタブとトレースID の一致を確かめた。別ホストの構成（`COMPOSE_FILE=compose.yaml`、provisioner を Tailscale のアドレスで公開）と、直接接続に戻す手順も確かめた
 
 ### 12.5 実装の作り（ステップ 1）
 

@@ -1,0 +1,15 @@
+# eapaka-node-provisioner（以下「provisioner」）と同じホストで、provisioner 経由でつなぐときに重ねる設定。
+# provisioner の compose が作る共有ネットワーク（既定の名前は eapaka-provisioner）に BFF だけを参加させ、
+# ホスト名 eapaka-provisioner で provisioner に接続する。BFF 専用の Valkey は参加させない。
+# provisioner を先に起動する。.env の COMPOSE_FILE=compose.yaml:compose.eapaka-provisioner.yaml で有効になる
+# （本PoCの共有ネットワーク用の compose.eapaka-prov.yaml は重ねない。provisioner 経由では本PoCに直接つながない）。
+services:
+  eapaka-webgui:
+    networks:
+      - default
+      - eapaka-provisioner
+
+networks:
+  eapaka-provisioner:
+    external: true
+    name: ${PROVISIONER_SHARED_NETWORK:-eapaka-provisioner}

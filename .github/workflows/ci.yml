@@ -69,7 +69,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: イメージのビルド
         run: docker build --build-arg VERSION="${GITHUB_SHA::7}" -t eapaka-webgui:ci .
-      - name: compose の設定（同一ホストと別ホスト）
+      - name: compose の設定（同一ホストと別ホスト、provisioner 経由）
         run: |
           cp .env.example .env
           sed -i -e 's|^EAPAKA_WEBGUI_VALKEY_PASSWORD=.*|EAPAKA_WEBGUI_VALKEY_PASSWORD=ci|' \
@@ -77,6 +77,8 @@ jobs:
           docker compose config -q
           docker compose config --services
           COMPOSE_FILE=compose.yaml docker compose config -q
+          # eapaka-node-provisioner 経由（同一ホスト）。
+          COMPOSE_FILE=compose.yaml:compose.eapaka-provisioner.yaml EAPAKA_WEBGUI_ADMIN_API=provisioner docker compose config -q
 
   contract:
     name: Provisioning API との契約テスト
