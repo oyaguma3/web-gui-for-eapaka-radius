@@ -76,7 +76,14 @@ func TestPVDashboardAndNavigation(t *testing.T) {
 	body := w.Body.String()
 	mustContain(t, body, "eapaka-node-provisioner 0.2.0", "完了していない操作があります（実行中 0、やり直し中 1、失敗 2）",
 		"aka-only-server のホスト名を解決できません。", "<code>00102</code> → aka-only-server", `<a href="/operations">操作の記録</a>`,
-		"ノード poc-01", "aka-only-server に接続できないため、確かめられませんでした")
+		"ノード poc-01", "aka-only-server に接続できないため、確かめられませんでした", "<td>接続中</td>")
+	// provisioner の Valkey の状態は「接続中」「切断」で表す（「接続できます」は、まだ接続していない状態とも読めるため）。
+	if strings.Contains(body, "接続できます") {
+		t.Error("dashboard says 接続できます")
+	}
+	down := newPVEnv(t)
+	down.pv.status.Valkey = pvapi.ValkeyStatus{Reachable: false, Error: "connection refused"}
+	mustContain(t, do(down.h, request("GET", "/", down.user, nil)).Body.String(), "切断（加入者の登録・変更・削除はできません）")
 	// RADIUSクライアントの件数など、provisioner の /status にないものは出さない。
 	if strings.Contains(body, `<a href="/clients">RADIUSクライアント</a></header>`) {
 		t.Error("dashboard shows the client count")

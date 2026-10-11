@@ -76,7 +76,8 @@
     </tr>
     <tr>
       <th scope="row">provisioner の Valkey</th>
-      <td>{{if .Valkey.Reachable}}接続できます{{else}}<span class="notice-error">接続できません（加入者の登録・変更・削除はできません）</span>{{end}}</td>
+      {{- /* 状態は「接続中」「切断」（「接続できます」は、まだ接続していない状態とも読めるため）。 */}}
+      <td>{{if .Valkey.Reachable}}接続中{{else}}<span class="notice-error">切断（加入者の登録・変更・削除はできません）</span>{{end}}</td>
     </tr>
   </tbody>
 </table>
