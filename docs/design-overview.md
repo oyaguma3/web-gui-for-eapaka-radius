@@ -27,7 +27,7 @@ EAP-AKA RADIUS PoC（eapaka-radius-server-poc。以下「本PoC」）の管理 G
 
 aka 版と同じ。
 
-- 言語: Go 1.27.1。標準ライブラリを優先する（`net/http` のメソッドつき ServeMux、`html/template`、`embed`、`log/slog`、`encoding/json/v2`）。
+- 言語: Go 1.27.4。標準ライブラリを優先する（`net/http` のメソッドつき ServeMux、`html/template`、`embed`、`log/slog`、`encoding/json/v2`）。
 - HTMX と Pico CSS はファイルをリポジトリに同梱して配信する。Alpine.js は使わない。
 - 外部依存は `github.com/valkey-io/valkey-go`（BFF 専用 Valkey）と `golang.org/x/crypto`（argon2id）に限る。
 - module パス: `github.com/oyaguma3/web-gui-for-eapaka-radius`

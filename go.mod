@@ -1,6 +1,6 @@
 module github.com/oyaguma3/web-gui-for-eapaka-radius
 
-go 1.27.1
+go 1.27.4
 
 require (
 	github.com/valkey-io/valkey-go v1.0.78
